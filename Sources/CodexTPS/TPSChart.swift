@@ -132,8 +132,8 @@ struct TPSChart: View {
                     }
                 }
                 .chartForegroundStyleScale(
-                    domain: series.map(\.label),
-                    range: series.map { SeriesPalette.color(slot: stats.slot(of: $0)) }
+                    domain: stats.allSeries.map(\.label),
+                    range: stats.allSeries.map { SeriesPalette.color(slot: stats.slot(of: $0)) }
                 )
                 .chartXScale(domain: start...stats.now)
                 .chartYScale(domain: .automatic(includesZero: true))
@@ -158,14 +158,16 @@ struct TPSChart: View {
                     set: { selection.bucket = $0.map(range.bucketStart) }
                 ))
                 .frame(height: 140)
-
-                legend(series: series, hovered: hovered)
             }
+
+            legend(series: stats.allSeries, visible: Set(series), hovered: hovered)
         }
     }
 
     /// Doubles as the hover readout, so values never cover the plot.
-    private func legend(series: [GroupKey], hovered: [ChartPoint]?) -> some View {
+    /// Lists every series in the history, dimming ones absent from the range, so switching
+    /// ranges does not change the popover height.
+    private func legend(series: [GroupKey], visible: Set<GroupKey>, hovered: [ChartPoint]?) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 16, alignment: .leading)], alignment: .leading, spacing: 4) {
             ForEach(series, id: \.self) { key in
                 HStack(spacing: 6) {
@@ -185,6 +187,7 @@ struct TPSChart: View {
                     }
                 }
                 .font(.caption.monospacedDigit())
+                .opacity(visible.contains(key) ? 1 : 0.4)
             }
         }
     }

@@ -6,10 +6,11 @@ private let log = Logger(subsystem: "local.codex-tps", category: "samples")
 
 struct GroupStats: Identifiable {
     let key: GroupKey
+    /// Latest response in the whole history, so idle series still show when they last ran.
     let last: Sample
-    let avgTPS: Double
+    /// Token-weighted TPS over the live window; nil when the series was idle.
+    let avgTPS: Double?
     let count: Int
-    let outputTokens: Int
 
     var id: GroupKey { key }
 }
@@ -119,20 +120,27 @@ final class Stats {
         return s
     }
 
+    /// One row per series in the history, in color-slot order, so rows neither
+    /// appear, vanish nor reorder as series go idle (the popover window does not shrink).
     var groups: [GroupStats] {
         let cutoff = now.addingTimeInterval(-Self.liveWindow)
-        return Dictionary(grouping: samples.filter { $0.end >= cutoff }, by: \.key).map { key, list in
-            let out = list.reduce(0) { $0 + $1.outputTokens }
-            let dur = list.reduce(0) { $0 + $1.duration }
+        let byKey = Dictionary(grouping: samples, by: \.key)
+        return allSeries.map { key in
+            let list = byKey[key]!
+            let live = list.filter { $0.end >= cutoff }
+            let out = live.reduce(0) { $0 + $1.outputTokens }
+            let dur = live.reduce(0) { $0 + $1.duration }
             return GroupStats(
                 key: key,
-                last: list.max { $0.end < $1.end }!,
-                avgTPS: Double(out) / dur,
-                count: list.count,
-                outputTokens: out
+                last: list.last!,
+                avgTPS: live.isEmpty ? nil : Double(out) / dur,
+                count: live.count
             )
         }
-        .sorted { $0.last.end > $1.last.end }
+    }
+
+    var allSeries: [GroupKey] {
+        Set(samples.map(\.key)).sorted { slot(of: $0) < slot(of: $1) }
     }
 
     /// Token-weighted TPS per group per time bucket of the range.

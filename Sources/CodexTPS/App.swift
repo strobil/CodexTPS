@@ -74,8 +74,13 @@ struct StatsView: View {
                             Text(g.key.effort)
                             Text(g.key.tierBadge.isEmpty ? "–" : g.key.tierBadge)
                             Text("\(Int(g.last.tps.rounded()))")
-                            Text("\(Int(g.avgTPS.rounded()))").bold()
-                            Text("\(g.count)")
+                            if let avg = g.avgTPS {
+                                Text("\(Int(avg.rounded()))").bold()
+                                Text("\(g.count)")
+                            } else {
+                                Text("—").foregroundStyle(.tertiary)
+                                Text("—").foregroundStyle(.tertiary)
+                            }
                             Text(ago(g.last.end)).foregroundStyle(.secondary)
                         }
                         .monospacedDigit()
@@ -106,6 +111,8 @@ struct StatsView: View {
 
     private func ago(_ date: Date) -> String {
         let s = Int(stats.now.timeIntervalSince(date))
-        return s < 60 ? "\(max(s, 0))s" : "\(s / 60)m"
+        if s < 60 { return "\(max(s, 0))s" }
+        if s < 3600 { return "\(s / 60)m" }
+        return "\(s / 3600)h"
     }
 }
