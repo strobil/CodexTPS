@@ -1,6 +1,6 @@
 # CodexTPS
 
-macOS menu bar app that shows live output tokens per second for the Codex desktop app and CLI, broken down by model, reasoning effort and service tier: `–` default, `⚡` Fast (`priority`), `⚡⚡` Ultrafast; any other tier is shown by name.
+macOS menu bar app that shows live output tokens per second for the Codex desktop app and CLI, broken down by model, reasoning effort and service tier: `–` default, `⚡` Fast (`fast` / `priority`), `⚡⚡` Ultrafast (`ultrafast`); any other tier is shown by name.
 
 - Menu bar: TPS of the latest model response.
 - Popover: per model × effort × tier table for the last minute and a chart for 30m / 2h / 5h / 10h.

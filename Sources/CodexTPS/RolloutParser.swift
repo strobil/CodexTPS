@@ -3,7 +3,7 @@ import Foundation
 struct GroupKey: Hashable, Sendable {
     let model: String
     let effort: String
-    /// Raw `service_tier`: "default", "priority" (Fast), or any newer tier such as Ultrafast.
+    /// `service_tier` as logged, with "fast" folded into its legacy alias "priority".
     let tier: String
 
     var id: String { "\(model)|\(effort)|\(tier)" }
@@ -12,7 +12,7 @@ struct GroupKey: Hashable, Sendable {
         switch tier {
         case "default": ""
         case "priority": "⚡"
-        case let t where t.localizedCaseInsensitiveContains("ultra"): "⚡⚡"
+        case "ultrafast": "⚡⚡"
         default: tier
         }
     }
@@ -59,7 +59,7 @@ struct RolloutParser {
                 let s = payload["thread_settings"] as? [String: Any] ?? [:]
                 if let m = s["model"] as? String { model = m }
                 if let e = s["reasoning_effort"] as? String { effort = e }
-                if let t = s["service_tier"] as? String { tier = t }
+                if let t = s["service_tier"] as? String { tier = t == "fast" ? "priority" : t }
             case "task_started":
                 requestStart = ts
             case "task_complete", "turn_aborted":
