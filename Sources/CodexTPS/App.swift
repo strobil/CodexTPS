@@ -92,6 +92,9 @@ struct StatsView: View {
             HStack {
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
+                    .buttonStyle(.plain)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(14)

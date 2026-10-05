@@ -47,6 +47,37 @@ final class ChartSelection {
     }
 }
 
+/// Plain SwiftUI segmented control; unlike `Picker(.segmented)` it also renders in `ImageRenderer` snapshots.
+struct RangePicker: View {
+    let selection: ChartSelection
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(ChartRange.allCases) { r in
+                let on = selection.range == r
+                Button { selection.range = r } label: {
+                    Text(r.title)
+                        .font(.caption.weight(on ? .semibold : .regular))
+                        .foregroundStyle(on ? .primary : .secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background {
+                            if on {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                                    .shadow(color: .black.opacity(0.15), radius: 0.5, y: 0.5)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+    }
+}
+
 struct TPSChart: View {
     let stats: Stats
     let selection: ChartSelection
@@ -60,15 +91,7 @@ struct TPSChart: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Spacer()
-                Picker("Range", selection: Binding(get: { selection.range }, set: { selection.range = $0 })) {
-                    ForEach(ChartRange.allCases) { r in
-                        Text(r.title).tag(r)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .fixedSize()
+                RangePicker(selection: selection)
             }
 
             if points.isEmpty {
@@ -99,7 +122,7 @@ struct TPSChart: View {
                         RuleMark(x: .value("Time", b))
                             .foregroundStyle(Color.secondary.opacity(0.5))
                             .lineStyle(StrokeStyle(lineWidth: 1))
-                            .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit, y: .disabled)) {
+                            .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                                 tooltip(bucket: b, range: range, points: points.filter { $0.bucket == b })
                             }
                     }
