@@ -99,6 +99,9 @@ struct StatsView: View {
         }
         .padding(14)
         .frame(minWidth: 460)
+        // Without an ideal height MenuBarExtra sizes its window larger than the content
+        // and centers it, leaving empty bands above and below.
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func ago(_ date: Date) -> String {
