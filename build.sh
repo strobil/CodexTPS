@@ -1,6 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 cd "$(dirname "$0")"
+VERSION=$(cat version.txt 2>/dev/null || echo 0.0.0)
 swift build -c release
 APP=build/CodexTPS.app
 rm -rf "$APP"
@@ -15,7 +16,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>CodexTPS</string>
   <key>CFBundleExecutable</key><string>CodexTPS</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
 </dict>
