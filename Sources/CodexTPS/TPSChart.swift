@@ -88,8 +88,15 @@ struct TPSChart: View {
         let series = stats.chartSeries(range)
         let start = stats.now.addingTimeInterval(-range.duration)
 
+        let hovered = selection.bucket.map { b in points.filter { $0.bucket == b } }
+
         VStack(alignment: .leading, spacing: 6) {
             HStack {
+                if let b = selection.bucket {
+                    Text(intervalTitle(b, range: range))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 RangePicker(selection: selection)
             }
@@ -122,9 +129,6 @@ struct TPSChart: View {
                         RuleMark(x: .value("Time", b))
                             .foregroundStyle(Color.secondary.opacity(0.5))
                             .lineStyle(StrokeStyle(lineWidth: 1))
-                            .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
-                                tooltip(bucket: b, range: range, points: points.filter { $0.bucket == b })
-                            }
                     }
                 }
                 .chartForegroundStyleScale(
@@ -148,45 +152,46 @@ struct TPSChart: View {
                         AxisValueLabel()
                     }
                 }
-                .chartLegend(series.count > 1 ? .visible : .hidden)
+                .chartLegend(.hidden)
                 .chartXSelection(value: Binding(
                     get: { selection.bucket },
                     set: { selection.bucket = $0.map(range.bucketStart) }
                 ))
                 .frame(height: 140)
+
+                legend(series: series, hovered: hovered)
             }
         }
     }
 
-    private func tooltip(bucket: Date, range: ChartRange, points: [ChartPoint]) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Group {
-                if range.bucket <= 60 {
-                    Text(bucket, format: .dateTime.hour().minute())
-                } else {
-                    Text("\(bucket.formatted(.dateTime.hour().minute()))–\(bucket.addingTimeInterval(range.bucket).formatted(.dateTime.hour().minute()))")
-                }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            if points.isEmpty {
-                Text("No responses").font(.caption2).foregroundStyle(.tertiary)
-            }
-            ForEach(points) { p in
+    /// Doubles as the hover readout, so values never cover the plot.
+    private func legend(series: [GroupKey], hovered: [ChartPoint]?) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 16, alignment: .leading)], alignment: .leading, spacing: 4) {
+            ForEach(series, id: \.self) { key in
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(SeriesPalette.color(slot: stats.slot(of: p.key)))
+                        .fill(SeriesPalette.color(slot: stats.slot(of: key)))
                         .frame(width: 8, height: 8)
-                    Text(p.key.label).font(.caption2)
+                    Text(key.label)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                     Spacer(minLength: 8)
-                    Text("\(Int(p.tps.rounded())) t/s · \(p.count)")
-                        .font(.caption2.monospacedDigit())
-                        .bold()
+                    if let hovered {
+                        if let p = hovered.first(where: { $0.key == key }) {
+                            Text("\(Int(p.tps.rounded())) t/s · \(p.count)").bold()
+                        } else {
+                            Text("—").foregroundStyle(.tertiary)
+                        }
+                    }
                 }
+                .font(.caption.monospacedDigit())
             }
         }
-        .padding(6)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
-        .fixedSize()
+    }
+
+    private func intervalTitle(_ bucket: Date, range: ChartRange) -> String {
+        let f = Date.FormatStyle.dateTime.hour().minute()
+        if range.bucket <= 60 { return bucket.formatted(f) }
+        return "\(bucket.formatted(f))–\(bucket.addingTimeInterval(range.bucket).formatted(f))"
     }
 }

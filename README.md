@@ -6,8 +6,8 @@ macOS menu bar app that shows live output tokens per second for the Codex deskto
 - Popover: per model × effort × tier table for the last minute and a chart for 30m / 2h / 5h / 10h.
 
 <p>
-  <img src="docs/popover-light.png" width="49%" alt="Popover in light mode: last-minute table and 30-minute TPS chart">
-  <img src="docs/popover-dark.png" width="49%" alt="Popover in dark mode: 2-hour chart with hover tooltip">
+  <img src="docs/popover-light.png" width="49%" alt="Popover in light mode: 10-hour chart, hovered interval values shown in the legend">
+  <img src="docs/popover-dark.png" width="49%" alt="Popover in dark mode: last-minute table and 30-minute TPS chart">
 </p>
 
 ## How it works
