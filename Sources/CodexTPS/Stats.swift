@@ -95,13 +95,14 @@ final class Stats {
     private(set) var samples: [Sample] = []
     private(set) var now = Date()
     /// Color slot per series, persisted so a series keeps its color across restarts.
-    private(set) var slots: [String: Int] = UserDefaults.standard.dictionary(forKey: "seriesSlots") as? [String: Int] ?? [:]
+    private(set) var slots: [String: Int] = Stats.loadSlots()
 
     private var watcher: SessionWatcher?
     private var timer: Timer?
 
     func start() {
-        let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions")
+        let root = ProcessInfo.processInfo.environment["CODEX_SESSIONS_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions")
         let watcher = SessionWatcher(root: root, window: Self.historyWindow) { [weak self] new in
             Task { @MainActor in self?.add(new) }
         }
@@ -168,6 +169,14 @@ final class Stats {
         UserDefaults.standard.set(slots, forKey: "seriesSlots")
     }
 
+    /// Slot keys used to end in "|true"/"|false" before the tier was stored verbatim.
+    private static func loadSlots() -> [String: Int] {
+        let raw = UserDefaults.standard.dictionary(forKey: "seriesSlots") as? [String: Int] ?? [:]
+        return Dictionary(raw.map { k, v in
+            (k.hasSuffix("|true") ? k.dropLast(5) + "|priority" : k.hasSuffix("|false") ? k.dropLast(6) + "|default" : k, v)
+        }, uniquingKeysWith: { a, _ in a })
+    }
+
     private struct BucketKey: Hashable {
         let key: GroupKey
         let bucket: Date
@@ -175,7 +184,7 @@ final class Stats {
 
     private func add(_ new: [Sample]) {
         for s in new {
-            log.info("\(s.key.model, privacy: .public) \(s.key.effort, privacy: .public) fast=\(s.key.fast) tps=\(Int(s.tps)) out=\(s.outputTokens)")
+            log.info("\(s.key.model, privacy: .public) \(s.key.effort, privacy: .public) tier=\(s.key.tier, privacy: .public) tps=\(Int(s.tps)) out=\(s.outputTokens)")
         }
         samples.append(contentsOf: new)
         samples.sort { $0.end < $1.end }

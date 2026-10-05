@@ -26,7 +26,7 @@ struct MenuBarLabel: View {
 
     var body: some View {
         if let s = stats.latest {
-            Text("\(s.key.fast ? "⚡" : "")\(Int(s.tps.rounded())) t/s")
+            Text("\(s.key.tierBadge)\(Int(s.tps.rounded())) t/s")
                 .monospacedDigit()
         } else {
             Text("— t/s")
@@ -52,7 +52,7 @@ struct StatsView: View {
                     GridRow {
                         Text("Model")
                         Text("Effort")
-                        Text("Fast")
+                        Text("Tier")
                         Text("Last").gridColumnAlignment(.trailing)
                         Text("Avg").gridColumnAlignment(.trailing)
                         Text("Count").gridColumnAlignment(.trailing)
@@ -72,7 +72,7 @@ struct StatsView: View {
                                 Text(g.key.model)
                             }
                             Text(g.key.effort)
-                            Text(g.key.fast ? "⚡" : "–")
+                            Text(g.key.tierBadge.isEmpty ? "–" : g.key.tierBadge)
                             Text("\(Int(g.last.tps.rounded()))")
                             Text("\(Int(g.avgTPS.rounded()))").bold()
                             Text("\(g.count)")

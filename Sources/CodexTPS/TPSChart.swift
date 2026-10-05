@@ -32,7 +32,7 @@ private extension NSColor {
 }
 
 extension GroupKey {
-    var label: String { "\(model) · \(effort)\(fast ? " · ⚡" : "")" }
+    var label: String { "\(model) · \(effort)\(tierBadge.isEmpty ? "" : " · \(tierBadge)")" }
 }
 
 @MainActor

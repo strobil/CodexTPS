@@ -3,9 +3,19 @@ import Foundation
 struct GroupKey: Hashable, Sendable {
     let model: String
     let effort: String
-    let fast: Bool
+    /// Raw `service_tier`: "default", "priority" (Fast), or any newer tier such as Ultrafast.
+    let tier: String
 
-    var id: String { "\(model)|\(effort)|\(fast)" }
+    var id: String { "\(model)|\(effort)|\(tier)" }
+
+    var tierBadge: String {
+        switch tier {
+        case "default": ""
+        case "priority": "⚡"
+        case let t where t.localizedCaseInsensitiveContains("ultra"): "⚡⚡"
+        default: tier
+        }
+    }
 }
 
 struct Sample: Sendable {
@@ -24,7 +34,7 @@ struct Sample: Sendable {
 struct RolloutParser {
     private var model = "?"
     private var effort = "?"
-    private var tier = "?"
+    private var tier = "default"
     private var requestStart: Date?
 
     private static let dateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
@@ -78,7 +88,7 @@ struct RolloutParser {
             let duration = ts.timeIntervalSince(start)
             guard duration > 0.3 else { return nil }
             return Sample(
-                key: GroupKey(model: model, effort: effort, fast: tier == "priority"),
+                key: GroupKey(model: model, effort: effort, tier: tier),
                 outputTokens: out,
                 reasoningTokens: usage["reasoning_output_tokens"] as? Int ?? 0,
                 duration: duration,

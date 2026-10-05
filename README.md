@@ -1,9 +1,9 @@
 # CodexTPS
 
-macOS menu bar app that shows live output tokens per second for the Codex desktop app and CLI, broken down by model, reasoning effort and fast mode (`service_tier = priority`).
+macOS menu bar app that shows live output tokens per second for the Codex desktop app and CLI, broken down by model, reasoning effort and service tier: `–` default, `⚡` Fast (`priority`), `⚡⚡` Ultrafast; any other tier is shown by name.
 
 - Menu bar: TPS of the latest model response.
-- Popover: per model × effort × fast table for the last minute and a chart for 30m / 2h / 5h / 10h.
+- Popover: per model × effort × tier table for the last minute and a chart for 30m / 2h / 5h / 10h.
 
 <p>
   <img src="docs/popover-light.png" width="49%" alt="Popover in light mode: last-minute table and 30-minute TPS chart">
@@ -33,7 +33,7 @@ Requires macOS 14+ and a Swift 6 toolchain.
 open build/CodexTPS.app
 ```
 
-`CodexTPS --snapshot out.png [dark] [hover] [m30|h2|h5|h10]` renders the popover to a PNG and exits.
+`CodexTPS --snapshot out.png [dark] [hover] [m30|h2|h5|h10]` renders the popover to a PNG and exits. `CODEX_SESSIONS_DIR` points the app at another sessions directory, e.g. synthetic test logs.
 
 ## Releases
 
