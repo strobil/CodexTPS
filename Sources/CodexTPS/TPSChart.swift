@@ -48,15 +48,18 @@ final class ChartSelection {
 }
 
 /// Plain SwiftUI segmented control; unlike `Picker(.segmented)` it also renders in `ImageRenderer` snapshots.
-struct RangePicker: View {
-    let selection: ChartSelection
+struct Segmented<T: Hashable>: View {
+    let options: [T]
+    let title: (T) -> String
+    let selected: T
+    let onSelect: (T) -> Void
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(ChartRange.allCases) { r in
-                let on = selection.range == r
-                Button { selection.range = r } label: {
-                    Text(r.title)
+            ForEach(options, id: \.self) { option in
+                let on = option == selected
+                Button { onSelect(option) } label: {
+                    Text(title(option))
                         .font(.caption.weight(on ? .semibold : .regular))
                         .foregroundStyle(on ? .primary : .secondary)
                         .padding(.horizontal, 8)
@@ -98,7 +101,7 @@ struct TPSChart: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                RangePicker(selection: selection)
+                Segmented(options: ChartRange.allCases, title: \.title, selected: selection.range) { selection.range = $0 }
             }
 
             if points.isEmpty {

@@ -115,9 +115,19 @@ final class Stats {
         }
     }
 
-    var latest: Sample? {
-        guard let s = samples.last, s.end >= now.addingTimeInterval(-Self.liveWindow) else { return nil }
-        return s
+    /// Value for the menu bar: the latest response or a token-weighted average,
+    /// over all series or only the pinned one. The window ends at the latest matching
+    /// response rather than now, so an idle pause keeps the last value instead of blanking.
+    func trayValue(metric: TrayMetric, pinned: String?) -> (tps: Double, badge: String)? {
+        let series = samples.filter { pinned == nil || $0.key.id == pinned }
+        guard let last = series.last else { return nil }
+        if metric == .last { return (last.tps, last.key.tierBadge) }
+        let cutoff = last.end.addingTimeInterval(-metric.window)
+        let pool = series.filter { $0.end >= cutoff }
+        let out = pool.reduce(0) { $0 + $1.outputTokens }
+        let dur = pool.reduce(0) { $0 + $1.duration }
+        let badges = Set(pool.map(\.key.tierBadge))
+        return (Double(out) / dur, badges.count == 1 ? badges.first! : "")
     }
 
     /// One row per series in the history, in color-slot order, so rows neither

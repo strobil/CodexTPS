@@ -4,18 +4,19 @@ import SwiftUI
 struct CodexTPSApp: App {
     private let stats: Stats
     private let selection = ChartSelection()
+    private let tray = TraySettings()
 
     init() {
         stats = Stats()
         stats.start()
-        Snapshot.runIfRequested(stats: stats, selection: selection)
+        Snapshot.runIfRequested(stats: stats, selection: selection, tray: tray)
     }
 
     var body: some Scene {
         MenuBarExtra {
-            StatsView(stats: stats, selection: selection)
+            StatsView(stats: stats, selection: selection, tray: tray)
         } label: {
-            MenuBarLabel(stats: stats)
+            MenuBarLabel(stats: stats, tray: tray)
         }
         .menuBarExtraStyle(.window)
     }
@@ -23,10 +24,11 @@ struct CodexTPSApp: App {
 
 struct MenuBarLabel: View {
     let stats: Stats
+    let tray: TraySettings
 
     var body: some View {
-        if let s = stats.latest {
-            Text("\(s.key.tierBadge)\(Int(s.tps.rounded())) t/s")
+        if let v = stats.trayValue(metric: tray.metric, pinned: tray.pinned) {
+            Text("\(v.badge)\(Int(v.tps.rounded())) t/s")
                 .monospacedDigit()
         } else {
             Text("— t/s")
@@ -37,6 +39,7 @@ struct MenuBarLabel: View {
 struct StatsView: View {
     let stats: Stats
     let selection: ChartSelection
+    let tray: TraySettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -70,6 +73,11 @@ struct StatsView: View {
                                     .fill(SeriesPalette.color(slot: stats.slot(of: g.key)))
                                     .frame(width: 8, height: 8)
                                 Text(g.key.model)
+                                if tray.pinned == g.key.id {
+                                    Image(systemName: "pin.fill")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             Text(g.key.effort)
                             Text(g.key.tierBadge.isEmpty ? "–" : g.key.tierBadge)
@@ -84,6 +92,9 @@ struct StatsView: View {
                             Text(ago(g.last.end)).foregroundStyle(.secondary)
                         }
                         .monospacedDigit()
+                        .contentShape(Rectangle())
+                        .onTapGesture { tray.togglePin(g.key) }
+                        .help("Show only this series in the menu bar")
                     }
                 }
             }
@@ -94,7 +105,15 @@ struct StatsView: View {
 
             Divider()
 
-            HStack {
+            HStack(spacing: 8) {
+                Text("Menu bar")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Segmented(options: TrayMetric.allCases, title: \.title, selected: tray.metric) { tray.metric = $0 }
+                Text(pinnedLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.plain)
@@ -107,6 +126,11 @@ struct StatsView: View {
         // Without an ideal height MenuBarExtra sizes its window larger than the content
         // and centers it, leaving empty bands above and below.
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var pinnedLabel: String {
+        guard let id = tray.pinned else { return "all series" }
+        return stats.allSeries.first { $0.id == id }?.label ?? "pinned series idle"
     }
 
     private func ago(_ date: Date) -> String {
