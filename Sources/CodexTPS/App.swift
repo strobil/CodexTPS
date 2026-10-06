@@ -5,16 +5,17 @@ struct CodexTPSApp: App {
     private let stats: Stats
     private let selection = ChartSelection()
     private let tray = TraySettings()
+    private let loginItem = LoginItem()
 
     init() {
         stats = Stats()
         stats.start()
-        Snapshot.runIfRequested(stats: stats, selection: selection, tray: tray)
+        Snapshot.runIfRequested(stats: stats, selection: selection, tray: tray, loginItem: loginItem)
     }
 
     var body: some Scene {
         MenuBarExtra {
-            StatsView(stats: stats, selection: selection, tray: tray)
+            StatsView(stats: stats, selection: selection, tray: tray, loginItem: loginItem)
         } label: {
             MenuBarLabel(stats: stats, tray: tray)
         }
@@ -40,6 +41,7 @@ struct StatsView: View {
     let stats: Stats
     let selection: ChartSelection
     let tray: TraySettings
+    let loginItem: LoginItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -114,6 +116,26 @@ struct StatsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+            }
+
+            HStack(spacing: 8) {
+                Button { loginItem.toggle() } label: {
+                    Label("Launch at login", systemImage: loginItem.isOn ? "checkmark.square.fill" : "square")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                if loginItem.status == .requiresApproval {
+                    Button("Allow in System Settings") { loginItem.openSettings() }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(.tint)
+                } else if let error = loginItem.error {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.plain)
@@ -126,6 +148,7 @@ struct StatsView: View {
         // Without an ideal height MenuBarExtra sizes its window larger than the content
         // and centers it, leaving empty bands above and below.
         .fixedSize(horizontal: false, vertical: true)
+        .onAppear { loginItem.refresh() }
     }
 
     private var pinnedLabel: String {

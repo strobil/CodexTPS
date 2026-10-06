@@ -24,6 +24,8 @@ Download `CodexTPS-<version>-macos-arm64.zip` from [Releases](https://github.com
 xattr -dr com.apple.quarantine /Applications/CodexTPS.app
 ```
 
+Turn on **Launch at login** at the bottom of the popover to start it with macOS (it shows up under System Settings → General → Login Items).
+
 ## Build
 
 Requires macOS 14+ and a Swift 6 toolchain.

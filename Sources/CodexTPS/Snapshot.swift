@@ -4,7 +4,7 @@ import SwiftUI
 /// `CodexTPS --snapshot <out.png> [dark] [hover] [tray] [m30|h2|h5|h10]` renders the popover to a PNG and exits.
 enum Snapshot {
     @MainActor
-    static func runIfRequested(stats: Stats, selection: ChartSelection, tray: TraySettings) {
+    static func runIfRequested(stats: Stats, selection: ChartSelection, tray: TraySettings, loginItem: LoginItem) {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count else { return }
         let out = URL(fileURLWithPath: args[i + 1])
@@ -18,7 +18,7 @@ enum Snapshot {
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
                 }
-                StatsView(stats: stats, selection: selection, tray: tray)
+                StatsView(stats: stats, selection: selection, tray: tray, loginItem: loginItem)
             }
                 .frame(width: 520)
                 .background(Color(nsColor: .windowBackgroundColor))
@@ -26,9 +26,17 @@ enum Snapshot {
             let r = ImageRenderer(content: view)
             r.scale = 2
             if dark { NSApp.appearance = NSAppearance(named: .darkAqua) }
-            if let img = r.nsImage, let tiff = img.tiffRepresentation,
-               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
-                try? png.write(to: out)
+            guard let img = r.nsImage, let tiff = img.tiffRepresentation,
+                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+            else {
+                FileHandle.standardError.write("snapshot: render failed\n".data(using: .utf8)!)
+                exit(1)
+            }
+            do {
+                try png.write(to: out)
+            } catch {
+                FileHandle.standardError.write("snapshot: \(error.localizedDescription)\n".data(using: .utf8)!)
+                exit(1)
             }
             exit(0)
         }
