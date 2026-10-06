@@ -6,16 +6,25 @@ struct CodexTPSApp: App {
     private let selection = ChartSelection()
     private let tray = TraySettings()
     private let loginItem = LoginItem()
+    private let setup = CodexSetup()
 
     init() {
         stats = Stats()
         stats.start()
-        Snapshot.runIfRequested(stats: stats, selection: selection, tray: tray, loginItem: loginItem)
+        Snapshot.runIfRequested(stats: stats, selection: selection, tray: tray, loginItem: loginItem, setup: setup)
+        let setup = setup
+        setup.refresh()
+        if !Snapshot.isRequested {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { SetupAlerts.offerIfNeeded(setup) }
+        }
+        Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in
+            MainActor.assumeIsolated { setup.refresh() }
+        }
     }
 
     var body: some Scene {
         MenuBarExtra {
-            StatsView(stats: stats, selection: selection, tray: tray, loginItem: loginItem)
+            StatsView(stats: stats, selection: selection, tray: tray, loginItem: loginItem, setup: setup)
         } label: {
             MenuBarLabel(stats: stats, tray: tray)
         }
@@ -42,6 +51,7 @@ struct StatsView: View {
     let selection: ChartSelection
     let tray: TraySettings
     let loginItem: LoginItem
+    let setup: CodexSetup
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -104,6 +114,8 @@ struct StatsView: View {
             TPSChart(stats: stats, selection: selection, tray: tray)
 
             Divider()
+
+            SetupStatusRow(stats: stats, setup: setup)
 
             HStack(spacing: 8) {
                 Text("Speed")
@@ -169,7 +181,10 @@ struct StatsView: View {
         // Without an ideal height MenuBarExtra sizes its window larger than the content
         // and centers it, leaving empty bands above and below.
         .fixedSize(horizontal: false, vertical: true)
-        .onAppear { loginItem.refresh() }
+        .onAppear {
+            loginItem.refresh()
+            setup.refresh()
+        }
     }
 
     private var pinnedLabel: String {

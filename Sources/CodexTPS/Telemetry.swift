@@ -14,6 +14,10 @@ final class TelemetryReceiver: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "codex-tps.telemetry")
     private let onSamples: @Sendable ([Sample]) -> Void
+    /// Called for every batch Codex sends, responses or not.
+    var onBatch: (@Sendable () -> Void)?
+    /// nil once listening, otherwise why the port could not be opened.
+    var onListenerError: (@Sendable (String?) -> Void)?
     private var listener: NWListener?
     private var tracker = ResponseTracker()
 
@@ -28,13 +32,22 @@ final class TelemetryReceiver: @unchecked Sendable {
         do {
             let l = try NWListener(using: params)
             l.newConnectionHandler = { [weak self] c in self?.serve(c) }
-            l.stateUpdateHandler = { state in
-                if case .failed(let e) = state { log.error("listener failed: \(e.localizedDescription, privacy: .public)") }
+            l.stateUpdateHandler = { [weak self] state in
+                switch state {
+                case .ready:
+                    self?.onListenerError?(nil)
+                case .failed(let e):
+                    log.error("listener failed: \(e.localizedDescription, privacy: .public)")
+                    self?.onListenerError?(e.localizedDescription)
+                default:
+                    break
+                }
             }
             l.start(queue: queue)
             listener = l
         } catch {
             log.error("listener: \(error.localizedDescription, privacy: .public)")
+            onListenerError?(error.localizedDescription)
         }
     }
 
@@ -50,6 +63,7 @@ final class TelemetryReceiver: @unchecked Sendable {
             var buf = buffer + (data ?? Data())
             while let request = HTTPRequest(parsing: &buf) {
                 if request.path.hasSuffix("/v1/logs") {
+                    self.onBatch?()
                     let samples = self.tracker.consume(otlpLogs: request.body)
                     if !samples.isEmpty { self.onSamples(samples) }
                 }

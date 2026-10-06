@@ -168,6 +168,12 @@ final class Stats {
     private(set) var slots: [String: Int] = Stats.loadSlots()
 
     private var telemetry: TelemetryReceiver?
+    /// Last time Codex delivered any telemetry batch.
+    private(set) var telemetrySeenAt: Date?
+    /// Why the telemetry port could not be opened, if it could not.
+    private(set) var listenerError: String?
+    /// Newest response that came through telemetry.
+    var lastTelemetryResponse: Date? { stored.last { $0.ttft != nil }?.end }
     private let db = MetricsDB()
     private var timer: Timer?
 
@@ -180,6 +186,12 @@ final class Stats {
                 self?.db.insert(new)
                 self?.add(new)
             }
+        }
+        telemetry.onBatch = { [weak self] in
+            Task { @MainActor in self?.telemetrySeenAt = Date() }
+        }
+        telemetry.onListenerError = { [weak self] e in
+            Task { @MainActor in self?.listenerError = e }
         }
         telemetry.start()
         self.telemetry = telemetry

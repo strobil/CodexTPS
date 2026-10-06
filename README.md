@@ -12,12 +12,18 @@ macOS menu bar app that shows live output tokens per second for the Codex deskto
 
 ## Setup
 
-The app gets its data from Codex's OpenTelemetry logs. Add to `~/.codex/config.toml` and fully restart Codex (⌘Q for the desktop app; its app server only reads the config at start):
+The app gets its data from Codex's OpenTelemetry logs. On first launch it offers to add this to `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`):
 
 ```toml
 [otel]
 exporter = { otlp-http = { endpoint = "http://127.0.0.1:43180/v1/logs", protocol = "json" } }
 ```
+
+Nothing is changed without confirmation. Before writing, CodexTPS backs the file up next to it (`config.toml.bak-codextps-…`); afterwards it runs `codex features list` and restores the backup if Codex rejects the file. An existing `[otel]` section pointing elsewhere is left alone, since Codex has a single logs exporter.
+
+Codex reads the config only when it starts. If the Codex app server was already running, the popover offers **Restart Codex…**, which asks the host app (ChatGPT/Codex) to quit and opens it again; terminal `codex` sessions need a manual restart. The status line at the bottom shows whether telemetry is arriving, and **Remove…** takes the section out again.
+
+The same steps are available headless: `CodexTPS --setup-status`, `--setup-install`, `--setup-uninstall`.
 
 Responses made while CodexTPS is not running are not recorded.
 

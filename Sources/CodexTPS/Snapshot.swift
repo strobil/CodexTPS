@@ -5,8 +5,20 @@ import SwiftUI
 /// `CodexTPS --bench [groups]` prints how long loading stored responses took and exits.
 enum Snapshot {
     @MainActor
-    static func runIfRequested(stats: Stats, selection: ChartSelection, tray: TraySettings, loginItem: LoginItem) {
+    static var isRequested: Bool {
+        CommandLine.arguments.contains { ["--snapshot", "--bench", "--setup-status", "--setup-install", "--setup-uninstall"].contains($0) }
+    }
+
+    @MainActor
+    static func runIfRequested(stats: Stats, selection: ChartSelection, tray: TraySettings, loginItem: LoginItem, setup: CodexSetup) {
         let args = CommandLine.arguments
+        // Headless setup commands (honour CODEX_HOME).
+        for (flag, action) in [("--setup-install", setup.install), ("--setup-uninstall", setup.uninstall), ("--setup-status", setup.refresh)]
+        where args.contains(flag) {
+            action()
+            print("config: \(setup.configURL.path)\nstate: \(setup.state)\nstale servers: \(setup.staleServers)\nerror: \(setup.error ?? "-")")
+            exit(setup.error == nil ? 0 : 1)
+        }
         if args.contains("--bench") {
             let started = Date()
             Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
@@ -42,7 +54,7 @@ enum Snapshot {
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
                 }
-                StatsView(stats: stats, selection: selection, tray: tray, loginItem: loginItem)
+                StatsView(stats: stats, selection: selection, tray: tray, loginItem: loginItem, setup: setup)
             }
                 .frame(width: 520)
                 .background(Color(nsColor: .windowBackgroundColor))
