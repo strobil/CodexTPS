@@ -68,11 +68,12 @@ struct StatsView: View {
 
                     Divider()
 
+                    let model = stats.chartModel(selection.range)
                     ForEach(stats.groups) { g in
                         GridRow {
                             HStack(spacing: 6) {
                                 Circle()
-                                    .fill(SeriesPalette.color(slot: stats.slot(of: g.key)))
+                                    .fill(SeriesPalette.color(slot: model.color(g.key)))
                                     .frame(width: 8, height: 8)
                                 Text(g.key.model)
                                 if tray.pinned == g.key.id {

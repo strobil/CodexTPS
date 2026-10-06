@@ -15,48 +15,83 @@ struct GroupStats: Identifiable {
     var id: GroupKey { key }
 }
 
+/// Grafana's "Last …" quick ranges up to 90 days.
 enum ChartRange: String, CaseIterable, Identifiable {
-    case m30, h2, h5, h10
+    case m5, m15, m30, h1, h3, h6, h12, h24, d2, d7, d30, d90
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .m5: "5m"
+        case .m15: "15m"
         case .m30: "30m"
-        case .h2: "2h"
-        case .h5: "5h"
-        case .h10: "10h"
+        case .h1: "1h"
+        case .h3: "3h"
+        case .h6: "6h"
+        case .h12: "12h"
+        case .h24: "24h"
+        case .d2: "2d"
+        case .d7: "7d"
+        case .d30: "30d"
+        case .d90: "90d"
         }
     }
 
     var duration: TimeInterval {
         switch self {
+        case .m5: 5 * 60
+        case .m15: 15 * 60
         case .m30: 30 * 60
-        case .h2: 2 * 3600
-        case .h5: 5 * 3600
-        case .h10: 10 * 3600
+        case .h1: 3600
+        case .h3: 3 * 3600
+        case .h6: 6 * 3600
+        case .h12: 12 * 3600
+        case .h24: 24 * 3600
+        case .d2: 2 * 86400
+        case .d7: 7 * 86400
+        case .d30: 30 * 86400
+        case .d90: 90 * 86400
         }
     }
 
+    /// Width of one chart point; keeps roughly 15–45 points per range.
     var bucket: TimeInterval {
         switch self {
+        case .m5: 20
+        case .m15: 30
         case .m30: 60
-        case .h2: 5 * 60
-        case .h5: 10 * 60
-        case .h10: 20 * 60
+        case .h1: 2 * 60
+        case .h3: 5 * 60
+        case .h6: 10 * 60
+        case .h12: 20 * 60
+        case .h24: 30 * 60
+        case .d2: 3600
+        case .d7: 4 * 3600
+        case .d30: 86400
+        case .d90: 2 * 86400
         }
     }
-
 
     /// X-axis tick spacing in minutes.
     var tickMinutes: Int {
         switch self {
+        case .m5: 1
+        case .m15: 5
         case .m30: 5
-        case .h2: 30
-        case .h5: 60
-        case .h10: 120
+        case .h1: 10
+        case .h3: 30
+        case .h6: 60
+        case .h12: 2 * 60
+        case .h24: 4 * 60
+        case .d2: 8 * 60
+        case .d7: 24 * 60
+        case .d30: 5 * 24 * 60
+        case .d90: 15 * 24 * 60
         }
     }
+
+    var showsDate: Bool { duration > 86400 }
 
     /// Tick dates aligned to round local times (multiples of `tickMinutes` since midnight).
     func ticks(until end: Date) -> [Date] {
@@ -83,18 +118,37 @@ struct ChartPoint: Identifiable {
     let bucket: Date
     let tps: Double
     let count: Int
+    /// Consecutive run of buckets within the series; lines are not drawn across segments.
+    var segment: Int
 
     var id: String { "\(key.id)|\(bucket.timeIntervalSince1970)" }
+}
+
+struct ChartModel {
+    let points: [ChartPoint]
+    /// Colored series in slot order, then "Other" when series were folded.
+    let legend: [GroupKey]
+    let palette: [GroupKey: Int]
+    /// Series with data in the range.
+    let visible: Set<GroupKey>
+
+    func color(_ key: GroupKey) -> Int {
+        palette[key] ?? SeriesPalette.count
+    }
 }
 
 @MainActor
 @Observable
 final class Stats {
     static let liveWindow: TimeInterval = 60
-    static let historyWindow: TimeInterval = ChartRange.h10.duration
+    static let historyWindow: TimeInterval = ChartRange.d90.duration
+    /// Table rows and legend entries cover series seen within this horizon.
+    static let seriesWindow: TimeInterval = 24 * 3600
 
     private(set) var samples: [Sample] = []
     private(set) var now = Date()
+    /// Set once the first scan of the session logs has finished.
+    private(set) var loaded = false
     /// Color slot per series, persisted so a series keeps its color across restarts.
     private(set) var slots: [String: Int] = Stats.loadSlots()
 
@@ -106,6 +160,10 @@ final class Stats {
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions")
         let watcher = SessionWatcher(root: root, window: Self.historyWindow) { [weak self] new in
             Task { @MainActor in self?.add(new) }
+        }
+        watcher.onFirstScan = { [weak self] files, seconds in
+            log.info("first scan: \(files) files in \(seconds, format: .fixed(precision: 1))s")
+            Task { @MainActor in self?.loaded = true }
         }
         watcher.start()
         self.watcher = watcher
@@ -134,7 +192,7 @@ final class Stats {
     /// appear, vanish nor reorder as series go idle (the popover window does not shrink).
     var groups: [GroupStats] {
         let cutoff = now.addingTimeInterval(-Self.liveWindow)
-        let byKey = Dictionary(grouping: samples, by: \.key)
+        let byKey = Dictionary(grouping: samples.filter { $0.end >= now.addingTimeInterval(-Self.seriesWindow) }, by: \.key)
         return allSeries.map { key in
             let list = byKey[key]!
             let live = list.filter { $0.end >= cutoff }
@@ -149,27 +207,72 @@ final class Stats {
         }
     }
 
+    /// Series seen in the last 24 hours, in color-slot order.
     var allSeries: [GroupKey] {
-        Set(samples.map(\.key)).sorted { slot(of: $0) < slot(of: $1) }
+        let cutoff = now.addingTimeInterval(-Self.seriesWindow)
+        var seen = Set<GroupKey>()
+        for s in samples.reversed() {
+            guard s.end >= cutoff else { break }
+            seen.insert(s.key)
+        }
+        return seen.sorted { slot(of: $0) < slot(of: $1) }
     }
 
-    /// Token-weighted TPS per group per time bucket of the range.
-    func chartPoints(_ range: ChartRange) -> [ChartPoint] {
+    /// Everything the chart, legend and table colors need for one range. Series are ranked
+    /// by how recently they ran; the eight most recent keep distinct colors (their remembered
+    /// slot when free) and the rest fold into a single "Other" series.
+    func chartModel(_ range: ChartRange) -> ChartModel {
         let cutoff = now.addingTimeInterval(-range.duration)
-        let buckets = Dictionary(grouping: samples.filter { $0.end >= cutoff }) { s in
-            BucketKey(key: s.key, bucket: range.bucketStart(s.end))
+        let seriesCutoff = now.addingTimeInterval(-Self.seriesWindow)
+        var lastSeen: [GroupKey: Date] = [:]
+        for s in samples.reversed() {
+            guard s.end >= min(cutoff, seriesCutoff) else { break }
+            if lastSeen[s.key] == nil { lastSeen[s.key] = s.end }
         }
-        return buckets.map { b, list in
+        let ranked = lastSeen.keys.sorted { lastSeen[$0]! > lastSeen[$1]! }
+
+        var palette: [GroupKey: Int] = [:]
+        var used = Set<Int>()
+        for key in ranked.prefix(SeriesPalette.count) {
+            let s = slot(of: key)
+            if s < SeriesPalette.count, !used.contains(s) {
+                palette[key] = s
+                used.insert(s)
+            }
+        }
+        for key in ranked.prefix(SeriesPalette.count) where palette[key] == nil {
+            let s = (0..<SeriesPalette.count).first { !used.contains($0) }!
+            palette[key] = s
+            used.insert(s)
+        }
+        let folded = ranked.count > SeriesPalette.count
+        if folded { palette[GroupKey.other] = SeriesPalette.count }
+        let display: (GroupKey) -> GroupKey = { palette[$0] == nil ? GroupKey.other : $0 }
+
+        let buckets = Dictionary(grouping: samples.filter { $0.end >= cutoff }) { s in
+            BucketKey(key: display(s.key), bucket: range.bucketStart(s.end))
+        }
+        var points = buckets.map { b, list in
             let out = list.reduce(0) { $0 + $1.outputTokens }
             let dur = list.reduce(0) { $0 + $1.duration }
-            return ChartPoint(key: b.key, bucket: b.bucket, tps: Double(out) / dur, count: list.count)
+            return ChartPoint(key: b.key, bucket: b.bucket, tps: Double(out) / dur, count: list.count, segment: 0)
         }
         .sorted { $0.bucket < $1.bucket }
-    }
 
-    func chartSeries(_ range: ChartRange) -> [GroupKey] {
-        let cutoff = now.addingTimeInterval(-range.duration)
-        return Set(samples.filter { $0.end >= cutoff }.map(\.key)).sorted { slot(of: $0) < slot(of: $1) }
+        // A new segment starts after a missing bucket so lines do not bridge idle stretches.
+        var previous: [GroupKey: (bucket: Date, segment: Int)] = [:]
+        for i in points.indices {
+            let p = points[i]
+            var segment = 0
+            if let prev = previous[p.key] {
+                segment = p.bucket.timeIntervalSince(prev.bucket) > range.bucket * 1.5 ? prev.segment + 1 : prev.segment
+            }
+            points[i].segment = segment
+            previous[p.key] = (p.bucket, segment)
+        }
+
+        let legend = ranked.prefix(SeriesPalette.count).sorted { palette[$0]! < palette[$1]! } + (folded ? [GroupKey.other] : [])
+        return ChartModel(points: points, legend: legend, palette: palette, visible: Set(points.map(\.key)))
     }
 
     func slot(of key: GroupKey) -> Int {
@@ -179,7 +282,7 @@ final class Stats {
     /// Keeps a series' remembered slot unless another series in the current history holds it;
     /// otherwise takes the lowest slot free among series currently in history.
     private func assignSlot(_ key: GroupKey) {
-        let present = Set(samples.map(\.key.id)).subtracting([key.id])
+        let present = Set(allSeries.map(\.id)).subtracting([key.id])
         let taken = Set(present.compactMap { slots[$0] })
         if let s = slots[key.id], s < SeriesPalette.count, !taken.contains(s) { return }
         slots = slots.filter { present.contains($0.key) || $0.value >= SeriesPalette.count || !taken.contains($0.value) }

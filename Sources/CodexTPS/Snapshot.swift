@@ -1,17 +1,36 @@
 import AppKit
 import SwiftUI
 
-/// `CodexTPS --snapshot <out.png> [dark] [hover] [tray] [m30|h2|h5|h10]` renders the popover to a PNG and exits.
+/// `CodexTPS --snapshot <out.png> [dark] [hover] [tray] [<range>]` renders the popover to a PNG and exits.
+/// `CodexTPS --bench` prints how long the first log scan took and exits.
 enum Snapshot {
     @MainActor
     static func runIfRequested(stats: Stats, selection: ChartSelection, tray: TraySettings, loginItem: LoginItem) {
         let args = CommandLine.arguments
+        if args.contains("--bench") {
+            let started = Date()
+            Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    guard stats.loaded else { return }
+                    var usage = rusage()
+                    getrusage(RUSAGE_SELF, &usage)
+                    print("loaded in \(String(format: "%.1f", Date().timeIntervalSince(started)))s, \(stats.samples.count) samples, max RSS \(usage.ru_maxrss >> 20) MB")
+                    if args.contains("groups") {
+                        for (id, list) in Dictionary(grouping: stats.samples, by: \.key.id).sorted(by: { $0.key < $1.key }) {
+                            print(id, list.count, list.reduce(0) { $0 + $1.outputTokens })
+                        }
+                    }
+                    exit(0)
+                }
+            }
+            return
+        }
         guard let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count else { return }
         let out = URL(fileURLWithPath: args[i + 1])
         let dark = args.contains("dark")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+        waitUntilLoaded(stats) {
             if let r = ChartRange.allCases.first(where: { args.contains($0.rawValue) }) { selection.range = r }
-            if let b = stats.chartPoints(selection.range).last?.bucket, args.contains("hover") { selection.bucket = b }
+            if let b = stats.chartModel(selection.range).points.last?.bucket, args.contains("hover") { selection.bucket = b }
             let view = VStack(alignment: .leading, spacing: 0) {
                 if args.contains("tray") {
                     MenuBarLabel(stats: stats, tray: tray)
@@ -40,5 +59,15 @@ enum Snapshot {
             }
             exit(0)
         }
+    }
+
+    @MainActor
+    private static func waitUntilLoaded(_ stats: Stats, then body: @escaping @MainActor () -> Void) {
+        guard stats.loaded else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { waitUntilLoaded(stats, then: body) }
+            return
+        }
+        // Let SwiftUI observe the final samples before rendering.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { body() }
     }
 }

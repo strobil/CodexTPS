@@ -32,7 +32,7 @@ private extension NSColor {
 }
 
 extension GroupKey {
-    var label: String { "\(model) · \(effort)\(tierBadge.isEmpty ? "" : " · \(tierBadge)")" }
+    var label: String { self == .other ? "Other" : "\(model) · \(effort)\(tierBadge.isEmpty ? "" : " · \(tierBadge)")" }
 }
 
 @MainActor
@@ -87,8 +87,8 @@ struct TPSChart: View {
 
     var body: some View {
         let range = selection.range
-        let points = stats.chartPoints(range)
-        let series = stats.chartSeries(range)
+        let model = stats.chartModel(range)
+        let points = model.points
         let start = stats.now.addingTimeInterval(-range.duration)
 
         let hovered = selection.bucket.map { b in points.filter { $0.bucket == b } }
@@ -114,7 +114,8 @@ struct TPSChart: View {
                     ForEach(points) { p in
                         LineMark(
                             x: .value("Time", p.bucket),
-                            y: .value("TPS", p.tps)
+                            y: .value("TPS", p.tps),
+                            series: .value("Segment", "\(p.key.label)#\(p.segment)")
                         )
                         .foregroundStyle(by: .value("Series", p.key.label))
                         .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
@@ -135,8 +136,8 @@ struct TPSChart: View {
                     }
                 }
                 .chartForegroundStyleScale(
-                    domain: stats.allSeries.map(\.label),
-                    range: stats.allSeries.map { SeriesPalette.color(slot: stats.slot(of: $0)) }
+                    domain: model.legend.map(\.label),
+                    range: model.legend.map { SeriesPalette.color(slot: model.color($0)) }
                 )
                 .chartXScale(domain: start...stats.now)
                 .chartYScale(domain: .automatic(includesZero: true))
@@ -145,7 +146,11 @@ struct TPSChart: View {
                         AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
                         let edge = stats.now.addingTimeInterval(-range.duration / 15)
                         if let d = value.as(Date.self), d < edge {
-                            AxisValueLabel(format: .dateTime.hour().minute())
+                            if range.showsDate {
+                                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                            } else {
+                                AxisValueLabel(format: .dateTime.hour().minute())
+                            }
                         }
                     }
                 }
@@ -163,19 +168,33 @@ struct TPSChart: View {
                 .frame(height: 140)
             }
 
-            legend(series: stats.allSeries, visible: Set(series), hovered: hovered)
+            legend(model, hovered: hovered)
         }
     }
 
     /// Doubles as the hover readout, so values never cover the plot.
-    /// Lists every series in the history, dimming ones absent from the range, so switching
-    /// ranges does not change the popover height.
-    private func legend(series: [GroupKey], visible: Set<GroupKey>, hovered: [ChartPoint]?) -> some View {
+    /// Lists the last day's series plus older ones the range reaches, dimming those absent
+    /// from the range, so switching between short ranges keeps the popover height.
+    private func legend(_ model: ChartModel, hovered: [ChartPoint]?) -> some View {
+        // Always as tall as the largest legend (8 colors + Other in two columns) so the
+        // popover keeps its height across ranges; MenuBarExtra does not shrink while open.
+        ZStack(alignment: .topLeading) {
+            VStack(spacing: 4) {
+                ForEach(0..<(SeriesPalette.count + 2) / 2, id: \.self) { _ in
+                    Text(" ").font(.caption)
+                }
+            }
+            .hidden()
+            legendGrid(model, hovered: hovered)
+        }
+    }
+
+    private func legendGrid(_ model: ChartModel, hovered: [ChartPoint]?) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 16, alignment: .leading)], alignment: .leading, spacing: 4) {
-            ForEach(series, id: \.self) { key in
+            ForEach(model.legend, id: \.self) { key in
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(SeriesPalette.color(slot: stats.slot(of: key)))
+                        .fill(SeriesPalette.color(slot: model.color(key)))
                         .frame(width: 8, height: 8)
                     Text(key.label)
                         .foregroundStyle(.secondary)
@@ -190,14 +209,20 @@ struct TPSChart: View {
                     }
                 }
                 .font(.caption.monospacedDigit())
-                .opacity(visible.contains(key) ? 1 : 0.4)
+                .opacity(model.visible.contains(key) ? 1 : 0.4)
             }
         }
     }
 
     private func intervalTitle(_ bucket: Date, range: ChartRange) -> String {
-        let f = Date.FormatStyle.dateTime.hour().minute()
-        if range.bucket <= 60 { return bucket.formatted(f) }
-        return "\(bucket.formatted(f))–\(bucket.addingTimeInterval(range.bucket).formatted(f))"
+        let end = bucket.addingTimeInterval(range.bucket)
+        if range.bucket >= 86400 {
+            let f = Date.FormatStyle.dateTime.month(.abbreviated).day()
+            return range.bucket == 86400 ? bucket.formatted(f) : "\(bucket.formatted(f))–\(end.addingTimeInterval(-1).formatted(f))"
+        }
+        let f = range.showsDate ? Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute() : .dateTime.hour().minute()
+        if range.bucket < 60 { return bucket.formatted(f.second()) }
+        if range.bucket == 60 { return bucket.formatted(f) }
+        return "\(bucket.formatted(f))–\(end.formatted(.dateTime.hour().minute()))"
     }
 }
