@@ -268,6 +268,22 @@ final class Stats {
         return seen.sorted { slot(of: $0) < slot(of: $1) }
     }
 
+    /// A series' figures over the minute before its latest response, so they stay put
+    /// during a pause instead of turning into dashes (same anchoring as the menu bar).
+    func recentStats(_ key: GroupKey) -> GroupStats? {
+        guard let last = samples.last(where: { $0.key == key }) else { return nil }
+        let cutoff = last.end.addingTimeInterval(-Self.liveWindow)
+        let window = samples.filter { $0.key == key && $0.end >= cutoff }
+        return GroupStats(
+            key: key,
+            last: last,
+            e2e: window.rate(.e2e),
+            decode: window.rate(.decode),
+            ttft: window.meanTTFT,
+            count: window.count
+        )
+    }
+
     /// Series that answered within `window`, most recent first.
     func activeSeries(within window: TimeInterval = 10 * 60) -> [GroupKey] {
         let cutoff = now.addingTimeInterval(-window)

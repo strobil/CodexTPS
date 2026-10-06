@@ -48,7 +48,10 @@ struct SetupStatusRow: View {
             if !setup.staleServers.isEmpty {
                 return Status(color: .orange, text: "Restart Codex to start sending telemetry", action: ("Restart Codex…", { SetupAlerts.restart(setup) }))
             }
-            if let seen = stats.telemetrySeenAt, stats.now.timeIntervalSince(seen) < 600 {
+            // A recent response with TTFT can only have come through telemetry, so it counts
+            // as connected too (e.g. right after CodexTPS restarts, before Codex sends again).
+            let recent = [stats.telemetrySeenAt, stats.lastTelemetryResponse].compactMap { $0 }.max()
+            if let seen = recent, stats.now.timeIntervalSince(seen) < 600 {
                 let last = stats.lastTelemetryResponse.map { "last response \(ago($0)) ago" } ?? "no responses yet"
                 return Status(color: .green, text: "Telemetry connected · \(last)", action: ("Remove…", { SetupAlerts.uninstall(setup) }))
             }

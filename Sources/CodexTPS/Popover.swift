@@ -67,11 +67,10 @@ struct NowTab: View {
     var body: some View {
         let model = stats.chartModel(selection.range, speed: tray.speed)
         let active = stats.activeSeries()
-        let groups = Dictionary(uniqueKeysWithValues: stats.groups.map { ($0.key, $0) })
 
         VStack(alignment: .leading, spacing: 12) {
             if let hero = stats.heroSeries(pinned: tray.pinned) {
-                HeroBlock(stats: stats, tray: tray, key: hero, live: groups[hero], color: model.color(hero))
+                HeroBlock(stats: stats, tray: tray, key: hero, live: stats.recentStats(hero), color: model.color(hero))
             } else {
                 Text("No responses yet")
                     .font(.title3)
@@ -83,7 +82,7 @@ struct NowTab: View {
 
             VStack(spacing: 0) {
                 ForEach(active, id: \.self) { key in
-                    SeriesRow(stats: stats, tray: tray, key: key, live: groups[key], color: model.color(key))
+                    SeriesRow(stats: stats, tray: tray, key: key, live: stats.recentStats(key), color: model.color(key))
                     Divider().opacity(0.5)
                 }
             }
@@ -91,7 +90,7 @@ struct NowTab: View {
             let idle = stats.allSeries.filter { !active.contains($0) }
             if !idle.isEmpty {
                 Text("Idle: " + idle.prefix(4).map { k in
-                    "\(k.label) \(ago(groups[k]?.last.end ?? stats.now, now: stats.now))"
+                    "\(k.label) \(ago(stats.recentStats(k)?.last.end ?? stats.now, now: stats.now))"
                 }.joined(separator: ", "))
                 .font(.caption)
                 .foregroundStyle(.tertiary)

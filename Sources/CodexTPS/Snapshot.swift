@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// `CodexTPS --snapshot <out.png> [dark] [hover] [tray] [<range>]` renders the popover to a PNG and exits.
+/// `CodexTPS --snapshot <out.png> [now|compare|settings] [dark] [hover] [tray] [<range>]` renders the popover to a PNG and exits.
 /// `CodexTPS --bench [groups]` prints how long loading stored responses took and exits.
 enum Snapshot {
     @MainActor
@@ -62,24 +62,37 @@ enum Snapshot {
                 PopoverView(stats: stats, selection: selection, tray: tray, loginItem: loginItem, setup: setup)
             }
                 .frame(width: PopoverView.size.width)
-                .background(Color(nsColor: .windowBackgroundColor))
                 .environment(\.colorScheme, dark ? .dark : .light)
-            let r = ImageRenderer(content: view)
-            r.scale = 2
-            if dark { NSApp.appearance = NSAppearance(named: .darkAqua) }
-            guard let img = r.nsImage, let tiff = img.tiffRepresentation,
-                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
-            else {
-                FileHandle.standardError.write("snapshot: render failed\n".data(using: .utf8)!)
-                exit(1)
+            // Draw through AppKit in a real (transparent) window on the menu material, like the
+            // MenuBarExtra window, rather than ImageRenderer, which skips native controls and materials.
+            let host = NSHostingView(rootView: view)
+            host.frame = NSRect(origin: .zero, size: host.fittingSize)
+            let background = NSVisualEffectView(frame: host.frame)
+            background.material = .menu
+            background.blendingMode = .withinWindow
+            background.state = .active
+            background.addSubview(host)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            window.contentView = background
+            window.alphaValue = 0
+            window.orderFrontRegardless()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                background.layoutSubtreeIfNeeded()
+                guard let rep = background.bitmapImageRepForCachingDisplay(in: background.bounds) else {
+                    FileHandle.standardError.write("snapshot: render failed\n".data(using: .utf8)!)
+                    exit(1)
+                }
+                background.cacheDisplay(in: background.bounds, to: rep)
+                let png = rep.representation(using: .png, properties: [:])!
+                do {
+                    try png.write(to: out)
+                } catch {
+                    FileHandle.standardError.write("snapshot: \(error.localizedDescription)\n".data(using: .utf8)!)
+                    exit(1)
+                }
+                exit(0)
             }
-            do {
-                try png.write(to: out)
-            } catch {
-                FileHandle.standardError.write("snapshot: \(error.localizedDescription)\n".data(using: .utf8)!)
-                exit(1)
-            }
-            exit(0)
         }
     }
 
