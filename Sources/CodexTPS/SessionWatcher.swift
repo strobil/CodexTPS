@@ -19,7 +19,7 @@ final class SessionWatcher: @unchecked Sendable {
     }
 
     private struct Cache: Codable {
-        static let version = 1
+        static let version = 2
         var version = Cache.version
         var files: [String: FileState]
     }

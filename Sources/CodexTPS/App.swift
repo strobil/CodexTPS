@@ -28,7 +28,7 @@ struct MenuBarLabel: View {
     let tray: TraySettings
 
     var body: some View {
-        if let v = stats.trayValue(metric: tray.metric, pinned: tray.pinned) {
+        if let v = stats.trayValue(metric: tray.metric, pinned: tray.pinned, speed: tray.speed) {
             Text("\(v.badge)\(Int(v.tps.rounded())) t/s")
                 .monospacedDigit()
         } else {
@@ -58,8 +58,9 @@ struct StatsView: View {
                         Text("Model")
                         Text("Effort")
                         Text("Tier")
-                        Text("Last").gridColumnAlignment(.trailing)
-                        Text("Avg").gridColumnAlignment(.trailing)
+                        Text("E2E").gridColumnAlignment(.trailing)
+                        Text("Decode").gridColumnAlignment(.trailing)
+                        Text("TTFT").gridColumnAlignment(.trailing)
                         Text("Count").gridColumnAlignment(.trailing)
                         Text("Ago").gridColumnAlignment(.trailing)
                     }
@@ -68,7 +69,7 @@ struct StatsView: View {
 
                     Divider()
 
-                    let model = stats.chartModel(selection.range)
+                    let model = stats.chartModel(selection.range, speed: tray.speed)
                     ForEach(stats.groups) { g in
                         GridRow {
                             HStack(spacing: 6) {
@@ -84,14 +85,10 @@ struct StatsView: View {
                             }
                             Text(g.key.effort)
                             Text(g.key.tierBadge.isEmpty ? "–" : g.key.tierBadge)
-                            Text("\(Int(g.last.tps.rounded()))")
-                            if let avg = g.avgTPS {
-                                Text("\(Int(avg.rounded()))").bold()
-                                Text("\(g.count)")
-                            } else {
-                                Text("—").foregroundStyle(.tertiary)
-                                Text("—").foregroundStyle(.tertiary)
-                            }
+                            cell(g.e2e.map { "\(Int($0.rounded()))" }, bold: tray.speed == .e2e)
+                            cell(g.decode.map { "\(Int($0.rounded()))" }, bold: tray.speed == .decode)
+                            cell(g.ttft.map { String(format: "%.1fs", $0) })
+                            cell(g.count > 0 ? "\(g.count)" : nil)
                             Text(ago(g.last.end)).foregroundStyle(.secondary)
                         }
                         .monospacedDigit()
@@ -104,14 +101,27 @@ struct StatsView: View {
 
             Divider()
 
-            TPSChart(stats: stats, selection: selection)
+            TPSChart(stats: stats, selection: selection, tray: tray)
 
             Divider()
+
+            HStack(spacing: 8) {
+                Text("Speed")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 58, alignment: .leading)
+                Segmented(options: SpeedMetric.allCases, title: \.title, selected: tray.speed) { tray.speed = $0 }
+                Text(tray.speed == .decode ? "after first token, telemetry only" : "incl. time to first token")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+            }
 
             HStack(spacing: 8) {
                 Text("Menu bar")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .frame(width: 58, alignment: .leading)
                 Segmented(options: TrayMetric.allCases, title: \.title, selected: tray.metric) { tray.metric = $0 }
                 Text(pinnedLabel)
                     .font(.caption)
@@ -155,6 +165,15 @@ struct StatsView: View {
     private var pinnedLabel: String {
         guard let id = tray.pinned else { return "all series" }
         return stats.allSeries.first { $0.id == id }?.label ?? "pinned series idle"
+    }
+
+    @ViewBuilder
+    private func cell(_ value: String?, bold: Bool = false) -> some View {
+        if let value {
+            Text(value).fontWeight(bold ? .bold : .regular)
+        } else {
+            Text("—").foregroundStyle(.tertiary)
+        }
     }
 
     private func ago(_ date: Date) -> String {

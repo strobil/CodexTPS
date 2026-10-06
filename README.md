@@ -16,6 +16,21 @@ Codex hooks fire once per turn and carry no token counts, so the app tails the r
 
 Files modified in the last 30 minutes are polled once per second; FSEvents does not fire for the way Codex appends to rollouts. Only lines that carry settings or token usage are JSON-parsed. Read offsets, parser state and samples are cached in `~/Library/Caches/local.codex-tps`, so only the first launch scans the full 90 days of logs (about 15 s for 3 GB); later launches load in under a second.
 
+## Decode speed and TTFT (telemetry)
+
+Rollout logs only show when a request was sent and when the response finished, so the TPS they give is end-to-end and includes time to first token. Short answers (low and medium effort) look slower that way even though the model generates at the same rate.
+
+For per-response time to first token and decode speed, let Codex export its OpenTelemetry logs to the app. Add to `~/.codex/config.toml` and fully restart Codex (⌘Q for the desktop app):
+
+```toml
+[otel]
+exporter = { otlp-http = { endpoint = "http://127.0.0.1:43180/v1/logs", protocol = "json" } }
+```
+
+CodexTPS listens on `127.0.0.1:43180` only. It pairs each `codex.websocket_request` with the next `codex.sse_event` `response.completed` (which carries `ttft_ms`, tokens, model, effort and service tier) and stores the result in `~/Library/Application Support/CodexTPS/metrics.sqlite`. Decode TPS = (output tokens − 1) / (duration − TTFT). Rollout parsing stays on to cover history and responses made while the app was not running; a response seen through both sources is merged.
+
+The **Speed** switch picks E2E or Decode for the chart and the menu bar; the table shows E2E, Decode and TTFT side by side.
+
 ## Install
 
 Download `CodexTPS-<version>-macos-arm64.zip` from [Releases](https://github.com/strobil/CodexTPS/releases), unzip and move `CodexTPS.app` to `/Applications`. The app is ad-hoc signed, not notarized, so clear the quarantine flag once:

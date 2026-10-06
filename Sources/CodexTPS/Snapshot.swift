@@ -15,6 +15,11 @@ enum Snapshot {
                     var usage = rusage()
                     getrusage(RUSAGE_SELF, &usage)
                     print("loaded in \(String(format: "%.1f", Date().timeIntervalSince(started)))s, \(stats.samples.count) samples, max RSS \(usage.ru_maxrss >> 20) MB")
+                    if let t = ProcessInfo.processInfo.environment["CODEX_TPS_THREAD"] {
+                        for x in stats.samples where x.threadId == t {
+                            print("thread sample end=\(x.end) out=\(x.outputTokens) dur=\(String(format: "%.3f", x.duration)) ttft=\(x.ttft.map { String(format: "%.3f", $0) } ?? "nil")")
+                        }
+                    }
                     if args.contains("groups") {
                         for (id, list) in Dictionary(grouping: stats.samples, by: \.key.id).sorted(by: { $0.key < $1.key }) {
                             print(id, list.count, list.reduce(0) { $0 + $1.outputTokens })
@@ -30,7 +35,7 @@ enum Snapshot {
         let dark = args.contains("dark")
         waitUntilLoaded(stats) {
             if let r = ChartRange.allCases.first(where: { args.contains($0.rawValue) }) { selection.range = r }
-            if let b = stats.chartModel(selection.range).points.last?.bucket, args.contains("hover") { selection.bucket = b }
+            if let b = stats.chartModel(selection.range, speed: tray.speed).points.last?.bucket, args.contains("hover") { selection.bucket = b }
             let view = VStack(alignment: .leading, spacing: 0) {
                 if args.contains("tray") {
                     MenuBarLabel(stats: stats, tray: tray)

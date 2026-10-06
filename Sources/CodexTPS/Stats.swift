@@ -8,8 +8,11 @@ struct GroupStats: Identifiable {
     let key: GroupKey
     /// Latest response in the whole history, so idle series still show when they last ran.
     let last: Sample
-    /// Token-weighted TPS over the live window; nil when the series was idle.
-    let avgTPS: Double?
+    /// Token-weighted rates over the live window; nil when the series was idle there
+    /// (decode also when none of its responses came with telemetry).
+    let e2e: Double?
+    let decode: Double?
+    let ttft: TimeInterval?
     let count: Int
 
     var id: GroupKey { key }
@@ -153,6 +156,8 @@ final class Stats {
     private(set) var slots: [String: Int] = Stats.loadSlots()
 
     private var watcher: SessionWatcher?
+    private var telemetry: TelemetryReceiver?
+    private let db = MetricsDB()
     private var timer: Timer?
 
     func start() {
@@ -165,8 +170,18 @@ final class Stats {
             log.info("first scan: \(files) files in \(seconds, format: .fixed(precision: 1))s")
             Task { @MainActor in self?.loaded = true }
         }
+        add(db.load(since: Date().addingTimeInterval(-Self.historyWindow)))
         watcher.start()
         self.watcher = watcher
+
+        let telemetry = TelemetryReceiver { [weak self] new in
+            Task { @MainActor in
+                self?.db.insert(new)
+                self?.add(new)
+            }
+        }
+        telemetry.start()
+        self.telemetry = telemetry
 
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.prune() }
@@ -176,16 +191,14 @@ final class Stats {
     /// Value for the menu bar: the latest response or a token-weighted average,
     /// over all series or only the pinned one. The window ends at the latest matching
     /// response rather than now, so an idle pause keeps the last value instead of blanking.
-    func trayValue(metric: TrayMetric, pinned: String?) -> (tps: Double, badge: String)? {
-        let series = samples.filter { pinned == nil || $0.key.id == pinned }
+    func trayValue(metric: TrayMetric, pinned: String?, speed: SpeedMetric) -> (tps: Double, badge: String)? {
+        let series = samples.filter { (pinned == nil || $0.key.id == pinned) && (speed == .e2e || $0.generationTime != nil) }
         guard let last = series.last else { return nil }
-        if metric == .last { return (last.tps, last.key.tierBadge) }
+        if metric == .last { return [last].rate(speed).map { ($0, last.key.tierBadge) } }
         let cutoff = last.end.addingTimeInterval(-metric.window)
         let pool = series.filter { $0.end >= cutoff }
-        let out = pool.reduce(0) { $0 + $1.outputTokens }
-        let dur = pool.reduce(0) { $0 + $1.duration }
         let badges = Set(pool.map(\.key.tierBadge))
-        return (Double(out) / dur, badges.count == 1 ? badges.first! : "")
+        return pool.rate(speed).map { ($0, badges.count == 1 ? badges.first! : "") }
     }
 
     /// One row per series in the history, in color-slot order, so rows neither
@@ -196,12 +209,12 @@ final class Stats {
         return allSeries.map { key in
             let list = byKey[key]!
             let live = list.filter { $0.end >= cutoff }
-            let out = live.reduce(0) { $0 + $1.outputTokens }
-            let dur = live.reduce(0) { $0 + $1.duration }
             return GroupStats(
                 key: key,
                 last: list.last!,
-                avgTPS: live.isEmpty ? nil : Double(out) / dur,
+                e2e: live.rate(.e2e),
+                decode: live.rate(.decode),
+                ttft: live.meanTTFT,
                 count: live.count
             )
         }
@@ -221,7 +234,7 @@ final class Stats {
     /// Everything the chart, legend and table colors need for one range. Series are ranked
     /// by how recently they ran; the eight most recent keep distinct colors (their remembered
     /// slot when free) and the rest fold into a single "Other" series.
-    func chartModel(_ range: ChartRange) -> ChartModel {
+    func chartModel(_ range: ChartRange, speed: SpeedMetric) -> ChartModel {
         let cutoff = now.addingTimeInterval(-range.duration)
         let seriesCutoff = now.addingTimeInterval(-Self.seriesWindow)
         var lastSeen: [GroupKey: Date] = [:]
@@ -249,13 +262,12 @@ final class Stats {
         if folded { palette[GroupKey.other] = SeriesPalette.count }
         let display: (GroupKey) -> GroupKey = { palette[$0] == nil ? GroupKey.other : $0 }
 
-        let buckets = Dictionary(grouping: samples.filter { $0.end >= cutoff }) { s in
+        let measurable = samples.filter { $0.end >= cutoff && (speed == .e2e || $0.generationTime != nil) }
+        let buckets = Dictionary(grouping: measurable) { s in
             BucketKey(key: display(s.key), bucket: range.bucketStart(s.end))
         }
-        var points = buckets.map { b, list in
-            let out = list.reduce(0) { $0 + $1.outputTokens }
-            let dur = list.reduce(0) { $0 + $1.duration }
-            return ChartPoint(key: b.key, bucket: b.bucket, tps: Double(out) / dur, count: list.count, segment: 0)
+        var points = buckets.compactMap { b, list in
+            list.rate(speed).map { ChartPoint(key: b.key, bucket: b.bucket, tps: $0, count: list.count, segment: 0) }
         }
         .sorted { $0.bucket < $1.bucket }
 
@@ -304,13 +316,36 @@ final class Stats {
     }
 
     private func add(_ new: [Sample]) {
-        for s in new {
-            log.info("\(s.key.model, privacy: .public) \(s.key.effort, privacy: .public) tier=\(s.key.tier, privacy: .public) tps=\(Int(s.tps)) out=\(s.outputTokens)")
+        guard !new.isEmpty else { return }
+        if new.count < 20 {
+            for s in new {
+                log.info("\(s.key.model, privacy: .public) \(s.key.effort, privacy: .public) tier=\(s.key.tier, privacy: .public) e2e=\(Int(s.tps)) decode=\(s.decodeTPS.map { String(Int($0)) } ?? "-", privacy: .public) ttft=\(s.ttft ?? -1) out=\(s.outputTokens)")
+            }
         }
         samples.append(contentsOf: new)
         samples.sort { $0.end < $1.end }
+        samples = Self.mergeDuplicates(samples)
         prune()
         for key in Set(new.map(\.key)) { assignSlot(key) }
+    }
+
+    /// The same response can arrive from the rollout log and from telemetry, a moment apart.
+    /// Samples of one thread that end within a couple of seconds are merged, keeping the
+    /// telemetry timing (its request start and TTFT are measured by Codex itself).
+    private static func mergeDuplicates(_ sorted: [Sample]) -> [Sample] {
+        var out: [Sample] = []
+        out.reserveCapacity(sorted.count)
+        var lastByThread: [String: Int] = [:]
+        for s in sorted {
+            if !s.threadId.isEmpty, let i = lastByThread[s.threadId], abs(out[i].end.timeIntervalSince(s.end)) < 2.5,
+               out[i].outputTokens == s.outputTokens {
+                if out[i].ttft == nil, s.ttft != nil { out[i] = s }
+                continue
+            }
+            out.append(s)
+            if !s.threadId.isEmpty { lastByThread[s.threadId] = out.count - 1 }
+        }
+        return out
     }
 
     private func prune() {

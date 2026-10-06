@@ -89,10 +89,11 @@ struct Segmented<T: Hashable>: View {
 struct TPSChart: View {
     let stats: Stats
     let selection: ChartSelection
+    let tray: TraySettings
 
     var body: some View {
         let range = selection.range
-        let model = stats.chartModel(range)
+        let model = stats.chartModel(range, speed: tray.speed)
         let points = model.points
         let start = stats.now.addingTimeInterval(-range.duration)
 

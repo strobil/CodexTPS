@@ -22,13 +22,31 @@ struct GroupKey: Hashable, Sendable, Codable {
 }
 
 struct Sample: Sendable, Codable {
+    /// Codex thread (OTEL `conversation.id`); with `end` it identifies a response across sources.
+    var threadId: String
     let key: GroupKey
     let outputTokens: Int
     let reasoningTokens: Int
-    let duration: TimeInterval
+    /// Request sent → response completed.
+    var duration: TimeInterval
     let end: Date
+    /// Request sent → first token, known only for responses seen through telemetry.
+    var ttft: TimeInterval?
 
+    /// End-to-end rate, including time to first token.
     var tps: Double { Double(outputTokens) / duration }
+
+    /// Time spent generating after the first token, when that can be told apart.
+    var generationTime: TimeInterval? {
+        guard let ttft, outputTokens > 1 else { return nil }
+        let t = duration - ttft
+        return t > 0.05 ? t : nil
+    }
+
+    /// Decode rate: tokens after the first divided by the time after the first.
+    var decodeTPS: Double? {
+        generationTime.map { Double(outputTokens - 1) / $0 }
+    }
 }
 
 /// Tracks one rollout file. A model request is assumed to start at the last
@@ -96,11 +114,13 @@ struct RolloutParser: Codable {
             let duration = ts.timeIntervalSince(start)
             guard duration > 0.3 else { return nil }
             return Sample(
+                threadId: payload["thread_id"] as? String ?? "",
                 key: GroupKey(model: model, effort: effort, tier: tier),
                 outputTokens: out,
                 reasoningTokens: usage["reasoning_output_tokens"] as? Int ?? 0,
                 duration: duration,
-                end: ts
+                end: ts,
+                ttft: nil
             )
 
         default:
