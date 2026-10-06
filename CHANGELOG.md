@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/strobil/CodexTPS/compare/CodexTPS-v0.2.0...CodexTPS-v0.3.0) (2026-10-06)
+
+
+### Features
+
+* bottom tab bar with Live, Models and Settings ([b75568c](https://github.com/strobil/CodexTPS/commit/b75568ce0affe615e1787367b5cbf25aa8d59b74))
+
+
+### Bug Fixes
+
+* let the Now chart fill the popover instead of leaving empty space ([22fabf6](https://github.com/strobil/CodexTPS/commit/22fabf64d04ed5819b4fd08cc70e5a99744d858f))
+
 ## [0.2.0](https://github.com/strobil/CodexTPS/compare/CodexTPS-v0.1.0...CodexTPS-v0.2.0) (2026-10-06)
 
 
