@@ -33,7 +33,7 @@ struct Sample: Sendable {
     /// Request sent → response completed.
     var duration: TimeInterval
     let end: Date
-    /// Request sent → first token; nil for history imported from rollout logs.
+    /// Request sent → first token, as measured by Codex.
     var ttft: TimeInterval?
 
     /// End-to-end rate, including time to first token.
