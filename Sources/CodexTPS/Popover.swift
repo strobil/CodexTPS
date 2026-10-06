@@ -111,15 +111,6 @@ struct NowTab: View {
                 Text("+\(active.count - 4) more active").font(.caption).foregroundStyle(.tertiary)
             }
 
-            let idle = stats.allSeries.filter { !active.contains($0) }
-            if !idle.isEmpty {
-                Text("Idle: " + idle.prefix(4).map { k in
-                    "\(k.label) \(ago(stats.recentStats(k)?.last.end ?? stats.now, now: stats.now))"
-                }.joined(separator: ", "))
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-            }
         }
         .frame(maxHeight: .infinity, alignment: .top)
     }
@@ -180,6 +171,10 @@ private struct SeriesRow: View {
         HStack(spacing: 8) {
             Circle().fill(SeriesPalette.color(slot: color)).frame(width: 8, height: 8)
             Text(key.label).lineLimit(1)
+            let chats = stats.activeThreads(key)
+            if chats > 1 {
+                Text("\(chats) chats").font(.caption).foregroundStyle(.tertiary)
+            }
             if tray.pinned == key.id {
                 Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.tertiary)
             }

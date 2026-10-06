@@ -284,6 +284,17 @@ final class Stats {
         )
     }
 
+    /// Distinct Codex threads of a series that answered within `window`.
+    func activeThreads(_ key: GroupKey, within window: TimeInterval = 10 * 60) -> Int {
+        let cutoff = now.addingTimeInterval(-window)
+        var threads = Set<String>()
+        for s in samples.reversed() {
+            guard s.end >= cutoff else { break }
+            if s.key == key { threads.insert(s.threadId) }
+        }
+        return threads.count
+    }
+
     /// Series that answered within `window`, most recent first.
     func activeSeries(within window: TimeInterval = 10 * 60) -> [GroupKey] {
         let cutoff = now.addingTimeInterval(-window)
