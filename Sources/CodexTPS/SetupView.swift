@@ -5,6 +5,8 @@ import SwiftUI
 struct SetupStatusRow: View {
     let stats: Stats
     let setup: CodexSetup
+    /// Footer form: no "Remove…", which lives in Settings.
+    var compact = false
 
     var body: some View {
         let s = status
@@ -16,7 +18,7 @@ struct SetupStatusRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
-            if let action = s.action {
+            if let action = s.action, !(compact && action.title == "Remove…") {
                 Button(action.title, action: action.run)
                     .buttonStyle(.plain)
                     .font(.caption.weight(.semibold))

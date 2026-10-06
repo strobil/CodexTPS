@@ -46,7 +46,12 @@ enum Snapshot {
         let out = URL(fileURLWithPath: args[i + 1])
         let dark = args.contains("dark")
         waitUntilLoaded(stats) {
-            if let r = ChartRange.allCases.first(where: { args.contains($0.rawValue) }) { selection.range = r }
+            if args.contains("compare") { selection.tab = .compare } else if args.contains("now") { selection.tab = .now }
+            selection.showSettings = args.contains("settings")
+            if let r = ChartRange.allCases.first(where: { args.contains($0.rawValue) }) {
+                if ChartSelection.nowRanges.contains(r) { selection.range = r }
+                if ChartSelection.compareRanges.contains(r) { selection.compareRange = r }
+            }
             if let b = stats.chartModel(selection.range, speed: tray.speed).points.last?.bucket, args.contains("hover") { selection.bucket = b }
             let view = VStack(alignment: .leading, spacing: 0) {
                 if args.contains("tray") {
@@ -54,9 +59,9 @@ enum Snapshot {
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
                 }
-                StatsView(stats: stats, selection: selection, tray: tray, loginItem: loginItem, setup: setup)
+                PopoverView(stats: stats, selection: selection, tray: tray, loginItem: loginItem, setup: setup)
             }
-                .frame(width: 520)
+                .frame(width: PopoverView.size.width)
                 .background(Color(nsColor: .windowBackgroundColor))
                 .environment(\.colorScheme, dark ? .dark : .light)
             let r = ImageRenderer(content: view)

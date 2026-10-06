@@ -2,12 +2,16 @@
 
 macOS menu bar app that shows live output tokens per second for the Codex desktop app and CLI, broken down by model and service tier (optionally reasoning effort): `–` default, `⚡` Fast (`fast` / `priority`), `⚡⚡` Ultrafast (`ultrafast`); any other tier is shown by name.
 
-- Menu bar: TPS of the latest response, or a 1m / 5m token-weighted average (default 1m), for all series or one pinned series. Click a table row to pin it. After a pause the last known value stays instead of blanking.
-- Popover: per model × tier table for the last minute (tick **Split by effort** to also split by reasoning effort, which barely changes decode speed but does change TTFT) and a chart with Grafana's quick ranges from 5m to 90d. The eight most recently active series get their own color; older ones fold into "Other".
+- Menu bar: TPS of the latest response, or a 1m / 5m token-weighted average (default 1m), for all series or one pinned series. After a pause the last known value stays instead of blanking.
+- **Now** tab: the pinned or most recent series in large type with E2E, decode, TTFT and responses per minute, a chart of active series (30m / 3h / 24h / 7d), and the active series list. Click a series to pin it to the menu bar.
+- **Compare** tab: series ranked by median per-response speed over 1h / 24h / 7d / 30d, with a p10–p90 bar and median TTFT.
+- Settings (gear): E2E or decode speed, menu bar metric, split by reasoning effort, launch at login, telemetry setup.
+
+Series are model × service tier by default (`–` default, `⚡` Fast, `⚡⚡` Ultrafast); reasoning effort barely changes decode speed, so splitting by it is optional. The popover has a fixed size because MenuBarExtra does not shrink its window while open.
 
 <p>
-  <img src="docs/popover-light.png" width="49%" alt="Popover in light mode: 10-hour chart, hovered interval values shown in the legend">
-  <img src="docs/popover-dark.png" width="49%" alt="Popover in dark mode: last-minute table and 30-minute TPS chart">
+  <img src="docs/popover-light.png" width="49%" alt="Now tab: current speed in large type, chart of active series, series list">
+  <img src="docs/popover-dark.png" width="49%" alt="Compare tab in dark mode: series ranked by median speed with p10–p90 bars and TTFT">
 </p>
 
 ## Setup

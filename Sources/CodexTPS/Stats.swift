@@ -127,6 +127,29 @@ struct ChartPoint: Identifiable {
     var id: String { "\(key.id)|\(bucket.timeIntervalSince1970)" }
 }
 
+struct SeriesDistribution: Identifiable {
+    let key: GroupKey
+    let p10: Double
+    let median: Double
+    let p90: Double
+    /// Median time to first token, when any response has it.
+    let ttft: TimeInterval?
+    let count: Int
+
+    var id: GroupKey { key }
+}
+
+extension Array where Element == Double {
+    /// Linear-interpolated quantile of an ascending array.
+    func quantile(_ q: Double) -> Double {
+        guard count > 1 else { return first ?? 0 }
+        let pos = q * Double(count - 1)
+        let lo = Int(pos.rounded(.down))
+        let hi = Swift.min(lo + 1, count - 1)
+        return self[lo] + (self[hi] - self[lo]) * (pos - Double(lo))
+    }
+}
+
 struct ChartModel {
     let points: [ChartPoint]
     /// Colored series in slot order, then "Other" when series were folded.
@@ -193,7 +216,8 @@ final class Stats {
         telemetry.onListenerError = { [weak self] e in
             Task { @MainActor in self?.listenerError = e }
         }
-        telemetry.start()
+        // Snapshot and bench runs must not compete with the running app for the port.
+        if !Snapshot.isRequested { telemetry.start() }
         self.telemetry = telemetry
 
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -242,6 +266,43 @@ final class Stats {
             seen.insert(s.key)
         }
         return seen.sorted { slot(of: $0) < slot(of: $1) }
+    }
+
+    /// Series that answered within `window`, most recent first.
+    func activeSeries(within window: TimeInterval = 10 * 60) -> [GroupKey] {
+        let cutoff = now.addingTimeInterval(-window)
+        var seen: [GroupKey] = []
+        for s in samples.reversed() {
+            guard s.end >= cutoff else { break }
+            if !seen.contains(s.key) { seen.append(s.key) }
+        }
+        return seen
+    }
+
+    /// The series the Now tab leads with: the pinned one if it has data, else the latest to answer.
+    func heroSeries(pinned: String?) -> GroupKey? {
+        if let pinned, let key = samples.last(where: { $0.key.id == pinned })?.key { return key }
+        return samples.last?.key
+    }
+
+    /// Per-response rate distribution of each series over a range, fastest median first.
+    func distributions(_ range: ChartRange, speed: SpeedMetric) -> [SeriesDistribution] {
+        let cutoff = now.addingTimeInterval(-range.duration)
+        let byKey = Dictionary(grouping: samples.filter { $0.end >= cutoff }, by: \.key)
+        return byKey.compactMap { key, list in
+            let rates = list.compactMap { speed == .e2e ? $0.tps : $0.decodeTPS }.sorted()
+            guard rates.count >= 3 else { return nil }
+            let ttfts = list.compactMap(\.ttft).sorted()
+            return SeriesDistribution(
+                key: key,
+                p10: rates.quantile(0.1),
+                median: rates.quantile(0.5),
+                p90: rates.quantile(0.9),
+                ttft: ttfts.isEmpty ? nil : ttfts.quantile(0.5),
+                count: rates.count
+            )
+        }
+        .sorted { $0.median > $1.median }
     }
 
     /// Everything the chart, legend and table colors need for one range. Series are ranked
