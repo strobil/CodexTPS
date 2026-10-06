@@ -52,6 +52,8 @@ struct Segmented<T: Hashable>: View {
     let options: [T]
     let title: (T) -> String
     let selected: T
+    /// Stretch segments to share the full width.
+    var fill = false
     let onSelect: (T) -> Void
 
     var body: some View {
@@ -60,6 +62,9 @@ struct Segmented<T: Hashable>: View {
                 let on = option == selected
                 Button { onSelect(option) } label: {
                     Text(title(option))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(maxWidth: fill ? .infinity : nil)
                         .font(.caption.weight(on ? .semibold : .regular))
                         .foregroundStyle(on ? .primary : .secondary)
                         .padding(.horizontal, 8)
@@ -94,15 +99,7 @@ struct TPSChart: View {
         let hovered = selection.bucket.map { b in points.filter { $0.bucket == b } }
 
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                if let b = selection.bucket {
-                    Text(intervalTitle(b, range: range))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Segmented(options: ChartRange.allCases, title: \.title, selected: selection.range) { selection.range = $0 }
-            }
+            Segmented(options: ChartRange.allCases, title: \.title, selected: selection.range, fill: true) { selection.range = $0 }
 
             if points.isEmpty {
                 Text("No responses")
@@ -147,9 +144,9 @@ struct TPSChart: View {
                         let edge = stats.now.addingTimeInterval(-range.duration / 15)
                         if let d = value.as(Date.self), d < edge {
                             if range.showsDate {
-                                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                                AxisValueLabel(format: .dateTime.month(.abbreviated).day(), anchor: .top)
                             } else {
-                                AxisValueLabel(format: .dateTime.hour().minute())
+                                AxisValueLabel(format: .dateTime.hour().minute(), anchor: .top)
                             }
                         }
                     }
@@ -167,6 +164,12 @@ struct TPSChart: View {
                 ))
                 .frame(height: 140)
             }
+
+            // Always present (blank when not hovering) so hovering does not shift the layout.
+            Text(selection.bucket.map { intervalTitle($0, range: range) } ?? " ")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
 
             legend(model, hovered: hovered)
         }
@@ -190,7 +193,7 @@ struct TPSChart: View {
     }
 
     private func legendGrid(_ model: ChartModel, hovered: [ChartPoint]?) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 16, alignment: .leading)], alignment: .leading, spacing: 4) {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 16, alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 4) {
             ForEach(model.legend, id: \.self) { key in
                 HStack(spacing: 6) {
                     Circle()
