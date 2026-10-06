@@ -4,7 +4,7 @@ import SwiftUI
 /// Fixed-size popover: MenuBarExtra does not shrink its window while open, so tabs,
 /// settings and changing series counts must not change the content height.
 struct PopoverView: View {
-    static let size = CGSize(width: 400, height: 560)
+    static let size = CGSize(width: 400, height: 480)
 
     let stats: Stats
     let selection: ChartSelection
@@ -78,13 +78,18 @@ struct NowTab: View {
                     .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
             }
 
+            // Takes whatever height the series list leaves, so a quiet moment shows a bigger chart.
             NowChart(stats: stats, selection: selection, model: model)
+                .frame(maxHeight: .infinity)
 
             VStack(spacing: 0) {
-                ForEach(active, id: \.self) { key in
+                ForEach(active.prefix(4), id: \.self) { key in
                     SeriesRow(stats: stats, tray: tray, key: key, live: stats.recentStats(key), color: model.color(key))
                     Divider().opacity(0.5)
                 }
+            }
+            if active.count > 4 {
+                Text("+\(active.count - 4) more active").font(.caption).foregroundStyle(.tertiary)
             }
 
             let idle = stats.allSeries.filter { !active.contains($0) }
@@ -94,9 +99,10 @@ struct NowTab: View {
                 }.joined(separator: ", "))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-                .lineLimit(2)
+                .lineLimit(1)
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 }
 
@@ -226,7 +232,7 @@ private struct NowChart: View {
                 }
             }
             .chartXSelection(value: Binding(get: { selection.bucket }, set: { selection.bucket = $0.map(range.bucketStart) }))
-            .frame(height: 120)
+            .frame(minHeight: 120, maxHeight: .infinity)
         }
     }
 
@@ -273,16 +279,16 @@ struct CompareTab: View {
                     Text("TTFT").font(.caption2).foregroundStyle(.tertiary).frame(width: 40, alignment: .trailing)
                 }
                 VStack(spacing: 10) {
-                    ForEach(rows.prefix(8)) { r in
+                    ForEach(rows.prefix(6)) { r in
                         DistributionRow(row: r, scale: scale, color: palette.color(r.key))
                     }
                 }
-                if rows.count > 8 {
-                    Text("+\(rows.count - 8) slower series").font(.caption2).foregroundStyle(.tertiary)
+                if rows.count > 6 {
+                    Text("+\(rows.count - 6) slower series").font(.caption2).foregroundStyle(.tertiary)
                 }
                 // Same columns as DistributionRow so ticks sit under the bars.
                 HStack(spacing: 8) {
-                    Color.clear.frame(width: 112, height: 1)
+                    Color.clear.frame(width: 128, height: 1)
                     GeometryReader { g in
                         ForEach(Array(stride(from: 0.0, through: scale, by: scale / 4)), id: \.self) { v in
                             Text("\(Int(v))")
@@ -314,10 +320,10 @@ private struct DistributionRow: View {
     var body: some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(row.key.label).font(.callout).lineLimit(1)
+                Text(row.key.label).font(.callout).lineLimit(1).minimumScaleFactor(0.8)
                 Text("\(row.count) resp").font(.caption2).foregroundStyle(.tertiary)
             }
-            .frame(width: 112, alignment: .leading)
+            .frame(width: 128, alignment: .leading)
 
             GeometryReader { g in
                 let x = { (v: Double) in g.size.width * CGFloat(min(v / scale, 1)) }
