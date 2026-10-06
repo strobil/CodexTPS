@@ -17,9 +17,10 @@ struct CodexTPSApp: App {
         if !Snapshot.isRequested {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { SetupAlerts.offerIfNeeded(setup) }
         }
-        Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in
+        let refresh = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             MainActor.assumeIsolated { setup.refresh() }
         }
+        refresh.tolerance = 10
     }
 
     var body: some Scene {

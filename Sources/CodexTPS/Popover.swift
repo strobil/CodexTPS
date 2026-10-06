@@ -40,7 +40,9 @@ struct PopoverView: View {
         .onAppear {
             loginItem.refresh()
             setup.refresh()
+            stats.setVisible(true)
         }
+        .onDisappear { stats.setVisible(false) }
     }
 }
 

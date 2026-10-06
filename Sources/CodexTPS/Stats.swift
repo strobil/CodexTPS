@@ -199,6 +199,20 @@ final class Stats {
     var lastTelemetryResponse: Date? { stored.last { $0.ttft != nil }?.end }
     private let db = MetricsDB()
     private var timer: Timer?
+    private var clock: Timer?
+
+    /// The popover is open: tick `now` every second for relative times and the chart's
+    /// right edge. Closed, nothing depends on wall time, so the app stays idle.
+    func setVisible(_ visible: Bool) {
+        clock?.invalidate()
+        clock = nil
+        guard visible else { return }
+        now = Date()
+        clock = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.now = Date() }
+        }
+        clock?.tolerance = 0.2
+    }
 
     func start() {
         add(db.load(since: Date().addingTimeInterval(-Self.historyWindow)))
@@ -220,9 +234,10 @@ final class Stats {
         if !Snapshot.isRequested { telemetry.start() }
         self.telemetry = telemetry
 
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.prune() }
         }
+        timer?.tolerance = 10
     }
 
     /// Value for the menu bar: the latest response or a token-weighted average,
@@ -423,24 +438,36 @@ final class Stats {
                 log.info("\(s.key.model, privacy: .public) \(s.key.effort, privacy: .public) tier=\(s.key.tier, privacy: .public) e2e=\(Int(s.tps)) decode=\(s.decodeTPS.map { String(Int($0)) } ?? "-", privacy: .public) ttft=\(s.ttft ?? -1) out=\(s.outputTokens)")
             }
         }
-        stored.append(contentsOf: new)
-        stored.sort { $0.end < $1.end }
-        prune()
-        regroup()
+        // Telemetry arrives in time order, so the common case is a plain append.
+        let ordered = new.sorted { $0.end < $1.end }
+        if let last = stored.last, let first = ordered.first, first.end < last.end {
+            stored.append(contentsOf: ordered)
+            stored.sort { $0.end < $1.end }
+            regroup()
+        } else {
+            stored.append(contentsOf: ordered)
+            samples.append(contentsOf: ordered.map(grouped))
+            for key in Set(ordered.map { grouped($0).key }) where slots[key.id] == nil { assignSlot(key) }
+        }
+    }
+
+    private func grouped(_ s: Sample) -> Sample {
+        guard !splitByEffort else { return s }
+        var s = s
+        s.key = s.key.withoutEffort
+        return s
     }
 
     private func regroup() {
-        samples = splitByEffort ? stored : stored.map { s in
-            var s = s
-            s.key = s.key.withoutEffort
-            return s
-        }
+        samples = stored.map(grouped)
         for key in allSeries { assignSlot(key) }
     }
 
     private func prune() {
         now = Date()
         let cutoff = now.addingTimeInterval(-Self.historyWindow)
+        // Mutating an observed array, even to remove nothing, re-renders every view reading it.
+        guard let first = stored.first, first.end < cutoff else { return }
         stored.removeAll { $0.end < cutoff }
         samples.removeAll { $0.end < cutoff }
     }
