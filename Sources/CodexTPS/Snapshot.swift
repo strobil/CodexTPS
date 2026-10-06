@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// `CodexTPS --snapshot <out.png> [dark] [hover] [tray] [<range>]` renders the popover to a PNG and exits.
-/// `CodexTPS --bench` prints how long the first log scan took and exits.
+/// `CodexTPS --bench [groups]` prints how long loading stored responses took and exits.
 enum Snapshot {
     @MainActor
     static func runIfRequested(stats: Stats, selection: ChartSelection, tray: TraySettings, loginItem: LoginItem) {

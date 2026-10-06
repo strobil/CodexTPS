@@ -150,29 +150,18 @@ final class Stats {
 
     private(set) var samples: [Sample] = []
     private(set) var now = Date()
-    /// Set once the first scan of the session logs has finished.
+    /// Set once stored responses have been loaded.
     private(set) var loaded = false
     /// Color slot per series, persisted so a series keeps its color across restarts.
     private(set) var slots: [String: Int] = Stats.loadSlots()
 
-    private var watcher: SessionWatcher?
     private var telemetry: TelemetryReceiver?
     private let db = MetricsDB()
     private var timer: Timer?
 
     func start() {
-        let root = ProcessInfo.processInfo.environment["CODEX_SESSIONS_DIR"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions")
-        let watcher = SessionWatcher(root: root, window: Self.historyWindow) { [weak self] new in
-            Task { @MainActor in self?.add(new) }
-        }
-        watcher.onFirstScan = { [weak self] files, seconds in
-            log.info("first scan: \(files) files in \(seconds, format: .fixed(precision: 1))s")
-            Task { @MainActor in self?.loaded = true }
-        }
         add(db.load(since: Date().addingTimeInterval(-Self.historyWindow)))
-        watcher.start()
-        self.watcher = watcher
+        loaded = true
 
         let telemetry = TelemetryReceiver { [weak self] new in
             Task { @MainActor in
@@ -324,28 +313,8 @@ final class Stats {
         }
         samples.append(contentsOf: new)
         samples.sort { $0.end < $1.end }
-        samples = Self.mergeDuplicates(samples)
         prune()
         for key in Set(new.map(\.key)) { assignSlot(key) }
-    }
-
-    /// The same response can arrive from the rollout log and from telemetry, a moment apart.
-    /// Samples of one thread that end within a couple of seconds are merged, keeping the
-    /// telemetry timing (its request start and TTFT are measured by Codex itself).
-    private static func mergeDuplicates(_ sorted: [Sample]) -> [Sample] {
-        var out: [Sample] = []
-        out.reserveCapacity(sorted.count)
-        var lastByThread: [String: Int] = [:]
-        for s in sorted {
-            if !s.threadId.isEmpty, let i = lastByThread[s.threadId], abs(out[i].end.timeIntervalSince(s.end)) < 2.5,
-               out[i].outputTokens == s.outputTokens {
-                if out[i].ttft == nil, s.ttft != nil { out[i] = s }
-                continue
-            }
-            out.append(s)
-            if !s.threadId.isEmpty { lastByThread[s.threadId] = out.count - 1 }
-        }
-        return out
     }
 
     private func prune() {

@@ -4,9 +4,9 @@ import SQLite3
 
 private let log = Logger(subsystem: "local.codex-tps", category: "db")
 
-/// Responses received through telemetry, kept in SQLite so their time to first token
-/// survives restarts. Rollout logs remain the source for history and for responses
-/// that happened while the app was not running.
+/// Every model response the app knows about, one row each. New rows come from
+/// telemetry; `scripts/import-rollouts.py` backfills older history from Codex rollout
+/// logs (those rows have no time to first token).
 final class MetricsDB: @unchecked Sendable {
     private var db: OpaquePointer?
     private let queue = DispatchQueue(label: "codex-tps.db")

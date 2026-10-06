@@ -10,26 +10,30 @@ macOS menu bar app that shows live output tokens per second for the Codex deskto
   <img src="docs/popover-dark.png" width="49%" alt="Popover in dark mode: last-minute table and 30-minute TPS chart">
 </p>
 
-## How it works
+## Setup
 
-Codex hooks fire once per turn and carry no token counts, so the app tails the rollout logs in `~/.codex/sessions/**/rollout-*.jsonl` instead. For every `token_usage_record` it takes `output_tokens` and divides by the time since the request was sent (turn start, tool output or user message), so TPS includes time to first token. Model, effort and tier come from `thread_settings_applied` / `turn_context`.
-
-Files modified in the last 30 minutes are polled once per second; FSEvents does not fire for the way Codex appends to rollouts. Only lines that carry settings or token usage are JSON-parsed. Read offsets, parser state and samples are cached in `~/Library/Caches/local.codex-tps`, so only the first launch scans the full 90 days of logs (about 15 s for 3 GB); later launches load in under a second.
-
-## Decode speed and TTFT (telemetry)
-
-Rollout logs only show when a request was sent and when the response finished, so the TPS they give is end-to-end and includes time to first token. Short answers (low and medium effort) look slower that way even though the model generates at the same rate.
-
-For per-response time to first token and decode speed, let Codex export its OpenTelemetry logs to the app. Add to `~/.codex/config.toml` and fully restart Codex (⌘Q for the desktop app):
+The app gets its data from Codex's OpenTelemetry logs. Add to `~/.codex/config.toml` and fully restart Codex (⌘Q for the desktop app; its app server only reads the config at start):
 
 ```toml
 [otel]
 exporter = { otlp-http = { endpoint = "http://127.0.0.1:43180/v1/logs", protocol = "json" } }
 ```
 
-CodexTPS listens on `127.0.0.1:43180` only. It pairs each `codex.websocket_request` with the next `codex.sse_event` `response.completed` (which carries `ttft_ms`, tokens, model, effort and service tier) and stores the result in `~/Library/Application Support/CodexTPS/metrics.sqlite`. Decode TPS = (output tokens − 1) / (duration − TTFT). Rollout parsing stays on to cover history and responses made while the app was not running; a response seen through both sources is merged.
+Responses made while CodexTPS is not running are not recorded.
 
-The **Speed** switch picks E2E or Decode for the chart and the menu bar; the table shows E2E, Decode and TTFT side by side.
+## How it works
+
+CodexTPS listens for OTLP/HTTP JSON on `127.0.0.1:43180` only. It pairs each `codex.websocket_request` (request sent) with the next `codex.sse_event` `response.completed` of the same conversation, which carries `ttft_ms`, output and reasoning tokens, model, reasoning effort and service tier. Each response becomes one row in `~/Library/Application Support/CodexTPS/metrics.sqlite`.
+
+- **E2E TPS** = output tokens / (request sent → response completed), including time to first token.
+- **Decode TPS** = (output tokens − 1) / (duration − TTFT), the generation speed itself.
+- **TTFT** = time to first token as measured by Codex.
+
+Averages are token-weighted. The **Speed** switch picks E2E or Decode for the chart and the menu bar; the table shows E2E, Decode and TTFT for the last minute.
+
+### Importing history
+
+`scripts/import-rollouts.py` backfills the database from Codex rollout logs (`~/.codex/sessions` and `~/.codex/archived_sessions`), skipping responses already recorded. Logs only time a request from the event that handed control back to the model to its `token_usage_record`, so imported rows have E2E timing but no TTFT or decode speed. Codex writes `token_usage_record` since early September 2026; older logs yield nothing.
 
 ## Install
 
@@ -50,7 +54,7 @@ Requires macOS 14+ and a Swift 6 toolchain.
 open build/CodexTPS.app
 ```
 
-`CodexTPS --snapshot out.png [dark] [hover] [tray] [m5…d90]` renders the popover to a PNG and exits; `CodexTPS --bench [groups]` reports the log scan time and per-series totals. `CODEX_SESSIONS_DIR` points the app at another sessions directory, e.g. synthetic test logs.
+`CodexTPS --snapshot out.png [dark] [hover] [tray] [m5…d90]` renders the popover to a PNG and exits; `CodexTPS --bench [groups]` reports the load time and per-series totals.
 
 ## Releases
 
