@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// `CodexTPS --snapshot <out.png> [now|compare|settings] [dark] [hover] [tray] [<range>]` renders the popover to a PNG and exits.
+/// `CodexTPS --snapshot <out.png> [live|models|settings] [dark] [hover] [tray] [<range>]` renders the popover to a PNG and exits.
 /// `CodexTPS --bench [groups]` prints how long loading stored responses took and exits.
 enum Snapshot {
     @MainActor
@@ -46,8 +46,7 @@ enum Snapshot {
         let out = URL(fileURLWithPath: args[i + 1])
         let dark = args.contains("dark")
         waitUntilLoaded(stats) {
-            if args.contains("compare") { selection.tab = .compare } else if args.contains("now") { selection.tab = .now }
-            selection.showSettings = args.contains("settings")
+            if let tab = ChartSelection.Tab.allCases.first(where: { args.contains($0.rawValue) }) { selection.tab = tab }
             if let r = ChartRange.allCases.first(where: { args.contains($0.rawValue) }) {
                 if ChartSelection.nowRanges.contains(r) { selection.range = r }
                 if ChartSelection.compareRanges.contains(r) { selection.compareRange = r }

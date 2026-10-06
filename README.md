@@ -3,14 +3,14 @@
 macOS menu bar app that shows how fast Codex models generate: output tokens per second for the Codex desktop app and CLI, with time to first token, per model and service tier.
 
 <p>
-  <img src="docs/popover-light.png" width="49%" alt="Now tab: current speed in large type, chart of active series, series list">
-  <img src="docs/popover-dark.png" width="49%" alt="Compare tab in dark mode: series ranked by median speed with p10–p90 bar and TTFT">
+  <img src="docs/popover-light.png" width="49%" alt="Live tab: current speed in large type, chart of active series, series list">
+  <img src="docs/popover-dark.png" width="49%" alt="Models tab in dark mode: series ranked by median speed with p10–p90 bar and TTFT">
 </p>
 
 - **Menu bar**: a 1-minute token-weighted average (or 5 minutes, or the latest response) for all series or one pinned series. During a pause it keeps the last value instead of blanking.
-- **Now**: the pinned or most recent series in large type with E2E speed, decode speed, TTFT and responses per minute; a chart of active series over 30m / 3h / 24h / 7d; the active series, where a click pins one to the menu bar.
-- **Compare**: series ranked by median per-response speed over 1h / 24h / 7d / 30d, with a p10–p90 bar and median TTFT.
-- **Settings** (gear): E2E or decode speed, menu bar metric, split by reasoning effort, launch at login, Codex telemetry setup.
+- **Live**: the pinned or most recent series in large type with E2E speed, decode speed, TTFT and responses per minute; a chart of active series over 30m / 3h / 24h / 7d; the active series, where a click pins one to the menu bar.
+- **Models**: series ranked by median per-response speed over 1h / 24h / 7d / 30d, with a p10–p90 bar and median TTFT.
+- **Settings**: E2E or decode speed, menu bar metric, split by reasoning effort, launch at login, Codex telemetry setup.
 
 A series is a model × service tier: `–` default, `⚡` Fast (`fast` / `priority`), `⚡⚡` Ultrafast (`ultrafast`); other tiers show by name. Reasoning effort barely changes decode speed, so splitting series by it is optional.
 
@@ -35,7 +35,7 @@ exporter = { otlp-http = { endpoint = "http://127.0.0.1:43180/v1/logs", protocol
 
 Nothing changes without confirmation. CodexTPS first backs the file up next to it (`config.toml.bak-codextps-…`), then writes it atomically and runs `codex features list`; if Codex rejects the file, the backup is restored. An `[otel]` section that already points elsewhere is left alone, since Codex has a single logs exporter.
 
-Codex reads its config only at start. If the Codex app server was already running, CodexTPS offers **Restart Codex…**, which asks ChatGPT or Codex to quit and opens it again; terminal `codex` sessions need a manual restart. The status line at the bottom of the popover shows whether telemetry is arriving, and **Remove…** in Settings takes the section out again.
+Codex reads its config only at start. If the Codex app server was already running, CodexTPS offers **Restart Codex…**, which asks ChatGPT or Codex to quit and opens it again; terminal `codex` sessions need a manual restart. When telemetry needs attention, a status line appears above the tab bar and the Settings tab gets a dot; Settings always shows the telemetry state, and **Remove…** there takes the section out again.
 
 The same steps work headless: `CodexTPS --setup-status`, `--setup-install`, `--setup-uninstall`.
 
@@ -47,7 +47,7 @@ CodexTPS listens for OTLP/HTTP JSON on `127.0.0.1:43180` only. It pairs each `co
 - **Decode** = (output tokens − 1) / (duration − TTFT): the generation speed itself.
 - **TTFT** = time to first token, as measured by Codex.
 
-Averages are token-weighted; Compare uses per-response medians and percentiles. A series' figures cover the minute before its latest response, so they stay put during a pause. The popover has a fixed size because MenuBarExtra does not shrink its window while it is open.
+Averages are token-weighted; Models uses per-response medians and percentiles. A series' figures cover the minute before its latest response, so they stay put during a pause. The popover has a fixed size because MenuBarExtra does not shrink its window while it is open.
 
 ## Build
 
@@ -60,7 +60,7 @@ open build/CodexTPS.app
 
 For development:
 
-- `CodexTPS --snapshot out.png [now|compare|settings] [dark] [hover] [tray] [m30|h3|h24|d7|h1|d30]` renders the popover through an offscreen AppKit window and exits; the screenshots above come from it.
+- `CodexTPS --snapshot out.png [live|models|settings] [dark] [hover] [tray] [m30|h3|h24|d7|h1|d30]` renders the popover through an offscreen AppKit window and exits; the screenshots above come from it.
 - `CodexTPS --bench [groups]` reports the load time and per-series totals.
 
 ## Releases

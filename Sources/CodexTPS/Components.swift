@@ -41,15 +41,33 @@ extension GroupKey {
 @MainActor
 @Observable
 final class ChartSelection {
-    enum Tab: String { case now, compare }
+    enum Tab: String, CaseIterable {
+        case live, models, settings
+
+        var title: String {
+            switch self {
+            case .live: "Live"
+            case .models: "Models"
+            case .settings: "Settings"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .live: "waveform.path.ecg"
+            case .models: "chart.bar.xaxis"
+            case .settings: "gearshape"
+            }
+        }
+    }
 
     static let nowRanges: [ChartRange] = [.m30, .h3, .h24, .d7]
     static let compareRanges: [ChartRange] = [.h1, .h24, .d7, .d30]
 
-    var tab = Tab(rawValue: UserDefaults.standard.string(forKey: "tab") ?? "") ?? .now {
+    /// Settings is not remembered, so the popover reopens on data.
+    var tab = Tab(rawValue: UserDefaults.standard.string(forKey: "tab") ?? "").flatMap { $0 == .settings ? nil : $0 } ?? .live {
         didSet { UserDefaults.standard.set(tab.rawValue, forKey: "tab") }
     }
-    var showSettings = false
     /// Hovered chart bucket on the Now tab.
     var bucket: Date?
     var range: ChartRange = ChartSelection.stored("chartRange", in: nowRanges, default: .m30) {

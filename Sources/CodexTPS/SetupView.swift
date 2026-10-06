@@ -27,6 +27,10 @@ struct SetupStatusRow: View {
         }
     }
 
+    /// Telemetry is arriving (or the dot is green for another reason).
+    var isHealthy: Bool { status.color == .green }
+    var indicatorColor: Color { status.color }
+
     private struct Status {
         let color: Color
         let text: String

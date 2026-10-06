@@ -13,42 +13,29 @@ struct PopoverView: View {
     let setup: CodexSetup
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                if selection.showSettings {
-                    Text("Settings").font(.headline)
-                } else {
-                    Segmented(options: [ChartSelection.Tab.now, .compare], title: { $0 == .now ? "Now" : "Compare" }, selected: selection.tab) {
-                        selection.tab = $0
-                    }
-                }
-                Spacer()
-                Button { selection.showSettings.toggle() } label: {
-                    Image(systemName: selection.showSettings ? "xmark" : "gearshape")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(selection.showSettings ? "Close settings" : "Settings")
-            }
-
+        let status = SetupStatusRow(stats: stats, setup: setup, compact: true)
+        VStack(spacing: 0) {
             Group {
-                if selection.showSettings {
-                    SettingsPanel(stats: stats, tray: tray, loginItem: loginItem, setup: setup)
-                } else if selection.tab == .now {
-                    NowTab(stats: stats, selection: selection, tray: tray)
-                } else {
-                    CompareTab(stats: stats, selection: selection, tray: tray)
+                switch selection.tab {
+                case .live: NowTab(stats: stats, selection: selection, tray: tray)
+                case .models: CompareTab(stats: stats, selection: selection, tray: tray)
+                case .settings: SettingsPanel(stats: stats, tray: tray, loginItem: loginItem, setup: setup)
                 }
             }
-            .frame(maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding([.horizontal, .top], 14)
+            .padding(.bottom, 10)
+
+            // Telemetry state is shown here only when it needs attention; Settings always has it.
+            if !status.isHealthy, selection.tab != .settings {
+                status
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
 
             Divider()
-            SetupStatusRow(stats: stats, setup: setup, compact: true)
+            TabBar(selection: selection, settingsBadge: status.isHealthy ? nil : status.indicatorColor)
         }
-        .padding(14)
         .frame(width: Self.size.width, height: Self.size.height)
         .onAppear {
             loginItem.refresh()
@@ -57,7 +44,39 @@ struct PopoverView: View {
     }
 }
 
-// MARK: - Now
+private struct TabBar: View {
+    let selection: ChartSelection
+    /// Dot on the Settings tab when telemetry needs attention.
+    let settingsBadge: Color?
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(ChartSelection.Tab.allCases, id: \.self) { tab in
+                let on = selection.tab == tab
+                Button { selection.tab = tab } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: tab.symbol)
+                            .font(.system(size: 15, weight: on ? .semibold : .regular))
+                            .frame(height: 18)
+                            .overlay(alignment: .topTrailing) {
+                                if tab == .settings, let badge = settingsBadge {
+                                    Circle().fill(badge).frame(width: 7, height: 7).offset(x: 4, y: -2)
+                                }
+                            }
+                        Text(tab.title).font(.caption2.weight(on ? .semibold : .regular))
+                    }
+                    .foregroundStyle(on ? Color.accentColor : Color.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+// MARK: - Live
 
 struct NowTab: View {
     let stats: Stats
@@ -245,7 +264,7 @@ private struct NowChart: View {
     }
 }
 
-// MARK: - Compare
+// MARK: - Models
 
 struct CompareTab: View {
     let stats: Stats
@@ -360,10 +379,11 @@ struct SettingsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            Text("Settings").font(.headline)
             setting("Speed", note: tray.speed == .decode ? "Generation after the first token; needs telemetry" : "Request to completion, including time to first token") {
                 Segmented(options: SpeedMetric.allCases, title: \.title, selected: tray.speed) { tray.speed = $0 }
             }
-            setting("Menu bar", note: tray.pinned.flatMap { id in stats.allSeries.first { $0.id == id }?.label }.map { "Pinned: \($0) · tap a series on Now to change" } ?? "All series · tap a series on Now to pin it") {
+            setting("Menu bar", note: tray.pinned.flatMap { id in stats.allSeries.first { $0.id == id }?.label }.map { "Pinned: \($0) · tap a series on Live to change" } ?? "All series · tap a series on Live to pin it") {
                 Segmented(options: TrayMetric.allCases, title: \.title, selected: tray.metric) { tray.metric = $0 }
             }
             VStack(alignment: .leading, spacing: 8) {
