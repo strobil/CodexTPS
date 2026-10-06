@@ -1,9 +1,9 @@
 # CodexTPS
 
-macOS menu bar app that shows live output tokens per second for the Codex desktop app and CLI, broken down by model, reasoning effort and service tier: `–` default, `⚡` Fast (`fast` / `priority`), `⚡⚡` Ultrafast (`ultrafast`); any other tier is shown by name.
+macOS menu bar app that shows live output tokens per second for the Codex desktop app and CLI, broken down by model and service tier (optionally reasoning effort): `–` default, `⚡` Fast (`fast` / `priority`), `⚡⚡` Ultrafast (`ultrafast`); any other tier is shown by name.
 
 - Menu bar: TPS of the latest response, or a 1m / 5m token-weighted average (default 1m), for all series or one pinned series. Click a table row to pin it. After a pause the last known value stays instead of blanking.
-- Popover: per model × effort × tier table for the last minute and a chart with Grafana's quick ranges from 5m to 90d. The eight most recently active series get their own color; older ones fold into "Other".
+- Popover: per model × tier table for the last minute (tick **Split by effort** to also split by reasoning effort, which barely changes decode speed but does change TTFT) and a chart with Grafana's quick ranges from 5m to 90d. The eight most recently active series get their own color; older ones fold into "Other".
 
 <p>
   <img src="docs/popover-light.png" width="49%" alt="Popover in light mode: 10-hour chart, hovered interval values shown in the legend">

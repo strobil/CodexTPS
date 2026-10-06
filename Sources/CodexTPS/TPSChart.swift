@@ -32,7 +32,10 @@ private extension NSColor {
 }
 
 extension GroupKey {
-    var label: String { self == .other ? "Other" : "\(model) · \(effort)\(tierBadge.isEmpty ? "" : " · \(tierBadge)")" }
+    var label: String {
+        if self == .other { return "Other" }
+        return ([model, effort, tierBadge].filter { !$0.isEmpty }).joined(separator: " · ")
+    }
 }
 
 @MainActor

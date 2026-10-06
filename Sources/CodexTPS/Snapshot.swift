@@ -14,7 +14,7 @@ enum Snapshot {
                     guard stats.loaded else { return }
                     var usage = rusage()
                     getrusage(RUSAGE_SELF, &usage)
-                    print("loaded in \(String(format: "%.1f", Date().timeIntervalSince(started)))s, \(stats.samples.count) samples, max RSS \(usage.ru_maxrss >> 20) MB")
+                    print("loaded in \(String(format: "%.1f", Date().timeIntervalSince(started)))s, \(stats.samples.count) samples, \(stats.allSeries.count) series in 24h, max RSS \(usage.ru_maxrss >> 20) MB")
                     if let t = ProcessInfo.processInfo.environment["CODEX_TPS_THREAD"] {
                         for x in stats.samples where x.threadId == t {
                             print("thread sample end=\(x.end) out=\(x.outputTokens) dur=\(String(format: "%.3f", x.duration)) ttft=\(x.ttft.map { String(format: "%.3f", $0) } ?? "nil")")

@@ -56,7 +56,7 @@ struct StatsView: View {
                 Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 6) {
                     GridRow {
                         Text("Model")
-                        Text("Effort")
+                        if stats.splitByEffort { Text("Effort") }
                         Text("Tier")
                         Text("E2E").gridColumnAlignment(.trailing)
                         Text("Decode").gridColumnAlignment(.trailing)
@@ -83,7 +83,7 @@ struct StatsView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
-                            Text(g.key.effort)
+                            if stats.splitByEffort { Text(g.key.effort) }
                             Text(g.key.tierBadge.isEmpty ? "–" : g.key.tierBadge)
                             cell(g.e2e.map { "\(Int($0.rounded()))" }, bold: tray.speed == .e2e)
                             cell(g.decode.map { "\(Int($0.rounded()))" }, bold: tray.speed == .decode)
@@ -130,6 +130,16 @@ struct StatsView: View {
             }
 
             HStack(spacing: 8) {
+                Button {
+                    stats.splitByEffort.toggle()
+                    // A pin made under the other grouping no longer names a series.
+                    tray.pinned = nil
+                } label: {
+                    Label("Split by effort", systemImage: stats.splitByEffort ? "checkmark.square.fill" : "square")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
                 Button { loginItem.toggle() } label: {
                     Label("Launch at login", systemImage: loginItem.isOn ? "checkmark.square.fill" : "square")
                         .font(.caption)

@@ -8,6 +8,9 @@ struct GroupKey: Hashable, Sendable {
 
     var id: String { "\(model)|\(effort)|\(tier)" }
 
+    /// The same series with reasoning effort left out of the grouping.
+    var withoutEffort: GroupKey { GroupKey(model: model, effort: "", tier: tier) }
+
     /// Stand-in for series beyond the palette on long ranges.
     static let other = GroupKey(model: "Other", effort: "", tier: "default")
 
@@ -24,7 +27,7 @@ struct GroupKey: Hashable, Sendable {
 struct Sample: Sendable {
     /// Codex thread (OTEL `conversation.id`); with `end` it identifies a response.
     var threadId: String
-    let key: GroupKey
+    var key: GroupKey
     let outputTokens: Int
     let reasoningTokens: Int
     /// Request sent → response completed.

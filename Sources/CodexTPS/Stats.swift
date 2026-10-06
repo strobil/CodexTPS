@@ -148,7 +148,19 @@ final class Stats {
     /// Table rows and legend entries cover series seen within this horizon.
     static let seriesWindow: TimeInterval = 24 * 3600
 
+    /// Responses as recorded.
+    private var stored: [Sample] = []
+    /// Responses as displayed: `stored` with effort dropped from the series key unless split by effort.
     private(set) var samples: [Sample] = []
+
+    /// Whether reasoning effort is part of a series. It barely changes decode speed, so
+    /// series default to model × tier; splitting helps when looking at TTFT or `max`.
+    var splitByEffort = UserDefaults.standard.bool(forKey: "splitByEffort") {
+        didSet {
+            UserDefaults.standard.set(splitByEffort, forKey: "splitByEffort")
+            regroup()
+        }
+    }
     private(set) var now = Date()
     /// Set once stored responses have been loaded.
     private(set) var loaded = false
@@ -311,15 +323,25 @@ final class Stats {
                 log.info("\(s.key.model, privacy: .public) \(s.key.effort, privacy: .public) tier=\(s.key.tier, privacy: .public) e2e=\(Int(s.tps)) decode=\(s.decodeTPS.map { String(Int($0)) } ?? "-", privacy: .public) ttft=\(s.ttft ?? -1) out=\(s.outputTokens)")
             }
         }
-        samples.append(contentsOf: new)
-        samples.sort { $0.end < $1.end }
+        stored.append(contentsOf: new)
+        stored.sort { $0.end < $1.end }
         prune()
-        for key in Set(new.map(\.key)) { assignSlot(key) }
+        regroup()
+    }
+
+    private func regroup() {
+        samples = splitByEffort ? stored : stored.map { s in
+            var s = s
+            s.key = s.key.withoutEffort
+            return s
+        }
+        for key in allSeries { assignSlot(key) }
     }
 
     private func prune() {
         now = Date()
         let cutoff = now.addingTimeInterval(-Self.historyWindow)
+        stored.removeAll { $0.end < cutoff }
         samples.removeAll { $0.end < cutoff }
     }
 }
