@@ -54,7 +54,9 @@ enum Snapshot {
             if let b = stats.chartModel(selection.range, speed: tray.speed).points.last?.bucket, args.contains("hover") { selection.bucket = b }
             let view = VStack(alignment: .leading, spacing: 0) {
                 if args.contains("tray") {
-                    MenuBarLabel(stats: stats, tray: tray)
+                    let offset = args.first { $0.hasPrefix("idle=") }.flatMap { TimeInterval($0.dropFirst(5)) } ?? 0
+                    // idle=<seconds> places the clock that long after the latest response.
+                    MenuBarLabel(stats: stats, tray: tray, now: (stats.samples.last?.end ?? Date()).addingTimeInterval(offset))
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
                 }

@@ -243,14 +243,14 @@ final class Stats {
     /// Value for the menu bar: the latest response or a token-weighted average,
     /// over all series or only the given one. The window ends at the latest matching
     /// response rather than now, so an idle pause keeps the last value instead of blanking.
-    func trayValue(metric: TrayMetric, pinned: String?, speed: SpeedMetric) -> (tps: Double, badge: String, model: String)? {
+    func trayValue(metric: TrayMetric, pinned: String?, speed: SpeedMetric) -> (tps: Double, badge: String, model: String, end: Date)? {
         let series = samples.filter { (pinned == nil || $0.key.id == pinned) && (speed == .e2e || $0.generationTime != nil) }
         guard let last = series.last else { return nil }
-        if metric == .last { return [last].rate(speed).map { ($0, last.key.tierBadge, last.key.model) } }
+        if metric == .last { return [last].rate(speed).map { ($0, last.key.tierBadge, last.key.model, last.end) } }
         let cutoff = last.end.addingTimeInterval(-metric.window)
         let pool = series.filter { $0.end >= cutoff }
         let badges = Set(pool.map(\.key.tierBadge))
-        return pool.rate(speed).map { ($0, badges.count == 1 ? badges.first! : "", last.key.model) }
+        return pool.rate(speed).map { ($0, badges.count == 1 ? badges.first! : "", last.key.model, last.end) }
     }
 
     /// One row per series in the history, in color-slot order, so rows neither

@@ -7,7 +7,7 @@ macOS menu bar app that shows how fast Codex models generate: output tokens per 
   <img src="docs/popover-dark.png" width="49%" alt="Models tab in dark mode: series ranked by median speed with p10–p90 bar and TTFT">
 </p>
 
-- **Menu bar**: model and speed of one series, e.g. `⚡ 6.1-sol 50 t/s`: the pinned series, or else the one that generated the most tokens in the last 5 minutes (the same series the Live tab leads with). A 1-minute token-weighted average by default, or 5 minutes, or the latest response. During a pause it keeps the last value instead of blanking.
+- **Menu bar**: model and speed of one series, e.g. `⚡ 6.1-sol 50 t/s`: the pinned series, or else the one that generated the most tokens in the last 5 minutes (the same series the Live tab leads with). A 1-minute token-weighted average by default, or 5 minutes, or the latest response. After 2 minutes without responses the value turns grey with its age (`6.1-sol 47 t/s · 12m`); after an hour only an icon remains. During a pause it keeps the last value instead of blanking.
 - **Live**: the pinned or most recent series in large type with E2E speed, decode speed, TTFT and responses per minute; a chart of active series over 30m / 3h / 24h / 7d; the active series, where a click pins one to the menu bar.
 - **Models**: series ranked by median per-response speed over 1h / 24h / 7d / 30d, with a p10–p90 bar and median TTFT.
 - **Settings**: E2E or decode speed, menu bar metric, split by reasoning effort, launch at login, Codex telemetry setup.
@@ -60,7 +60,7 @@ open build/CodexTPS.app
 
 For development:
 
-- `CodexTPS --snapshot out.png [live|models|settings] [dark] [hover] [tray] [m30|h3|h24|d7|h1|d30]` renders the popover through an offscreen AppKit window and exits; the screenshots above come from it.
+- `CodexTPS --snapshot out.png [live|models|settings] [dark] [hover] [tray] [idle=<s>] [m30|h3|h24|d7|h1|d30]` renders the popover through an offscreen AppKit window and exits; the screenshots above come from it.
 - `CodexTPS --bench [groups]` reports the load time and per-series totals.
 
 ## Releases
