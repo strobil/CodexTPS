@@ -39,7 +39,8 @@ struct MenuBarLabel: View {
 
     var body: some View {
         if let v = stats.trayValue(metric: tray.metric, pinned: tray.pinned, speed: tray.speed) {
-            Text("\(v.badge)\(Int(v.tps.rounded())) t/s")
+            let model = v.model.hasPrefix("gpt-") ? String(v.model.dropFirst(4)) : v.model
+            Text("\(v.badge)\(v.badge.isEmpty ? "" : " ")\(model) \(Int(v.tps.rounded())) t/s")
                 .monospacedDigit()
         } else {
             Text("— t/s")
