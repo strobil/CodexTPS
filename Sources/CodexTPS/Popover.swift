@@ -398,7 +398,7 @@ struct SettingsPanel: View {
             setting("Speed", note: tray.speed == .decode ? "Generation after the first token; needs telemetry" : "Request to completion, including time to first token") {
                 Segmented(options: SpeedMetric.allCases, title: \.title, selected: tray.speed) { tray.speed = $0 }
             }
-            setting("Menu bar", note: tray.pinned.flatMap { id in stats.allSeries.first { $0.id == id }?.label }.map { "Pinned: \($0) · tap a series on Live to change" } ?? "All series · tap a series on Live to pin it") {
+            setting("Menu bar", note: tray.pinned.flatMap { id in stats.allSeries.first { $0.id == id }?.label }.map { "Pinned: \($0) · tap a series on Live to change" } ?? "Main series (most tokens in 5 min) · tap a series on Live to pin it") {
                 Segmented(options: TrayMetric.allCases, title: \.title, selected: tray.metric) { tray.metric = $0 }
             }
             VStack(alignment: .leading, spacing: 8) {

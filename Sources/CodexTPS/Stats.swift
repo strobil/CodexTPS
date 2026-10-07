@@ -241,7 +241,7 @@ final class Stats {
     }
 
     /// Value for the menu bar: the latest response or a token-weighted average,
-    /// over all series or only the pinned one. The window ends at the latest matching
+    /// over all series or only the given one. The window ends at the latest matching
     /// response rather than now, so an idle pause keeps the last value instead of blanking.
     func trayValue(metric: TrayMetric, pinned: String?, speed: SpeedMetric) -> (tps: Double, badge: String, model: String)? {
         let series = samples.filter { (pinned == nil || $0.key.id == pinned) && (speed == .e2e || $0.generationTime != nil) }
@@ -250,8 +250,7 @@ final class Stats {
         let cutoff = last.end.addingTimeInterval(-metric.window)
         let pool = series.filter { $0.end >= cutoff }
         let badges = Set(pool.map(\.key.tierBadge))
-        let models = Set(pool.map(\.key.model))
-        return pool.rate(speed).map { ($0, badges.count == 1 ? badges.first! : "", models.count == 1 ? models.first! : "mix") }
+        return pool.rate(speed).map { ($0, badges.count == 1 ? badges.first! : "", last.key.model) }
     }
 
     /// One row per series in the history, in color-slot order, so rows neither
@@ -322,10 +321,18 @@ final class Stats {
         return seen
     }
 
-    /// The series the Now tab leads with: the pinned one if it has data, else the latest to answer.
+    /// The series the Live tab and the menu bar follow: the pinned one if it has data, else
+    /// the one that generated the most tokens in the last five minutes, so brief side
+    /// requests (e.g. gpt-5.6-luna inside a thread) do not take over; else the latest to answer.
     func heroSeries(pinned: String?) -> GroupKey? {
         if let pinned, let key = samples.last(where: { $0.key.id == pinned })?.key { return key }
-        return samples.last?.key
+        let cutoff = (samples.last?.end ?? now).addingTimeInterval(-5 * 60)
+        var tokens: [GroupKey: Int] = [:]
+        for s in samples.reversed() {
+            guard s.end >= cutoff else { break }
+            tokens[s.key, default: 0] += s.outputTokens
+        }
+        return tokens.max { $0.value < $1.value }?.key ?? samples.last?.key
     }
 
     /// Per-response rate distribution of each series over a range, fastest median first.

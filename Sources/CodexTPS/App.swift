@@ -38,7 +38,8 @@ struct MenuBarLabel: View {
     let tray: TraySettings
 
     var body: some View {
-        if let v = stats.trayValue(metric: tray.metric, pinned: tray.pinned, speed: tray.speed) {
+        // Same series as the Live tab's headline, so the two never disagree.
+        if let v = stats.trayValue(metric: tray.metric, pinned: stats.heroSeries(pinned: tray.pinned)?.id, speed: tray.speed) {
             let model = v.model.hasPrefix("gpt-") ? String(v.model.dropFirst(4)) : v.model
             Text("\(v.badge)\(v.badge.isEmpty ? "" : " ")\(model) \(Int(v.tps.rounded())) t/s")
                 .monospacedDigit()
