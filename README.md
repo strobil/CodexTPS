@@ -7,7 +7,7 @@ macOS menu bar app that shows how fast Codex models generate: output tokens per 
   <img src="docs/popover-dark.png" width="49%" alt="Models tab in dark mode: series ranked by median speed with p10–p90 bar and TTFT">
 </p>
 
-- **Menu bar**: a 1-minute token-weighted average (or 5 minutes, or the latest response) for all series or one pinned series. During a pause it keeps the last value instead of blanking.
+- **Menu bar**: model and speed, e.g. `⚡ 6.1-sol 50 t/s` (`mix` when an average spans several models); a 1-minute token-weighted average (or 5 minutes, or the latest response) for all series or one pinned series. During a pause it keeps the last value instead of blanking.
 - **Live**: the pinned or most recent series in large type with E2E speed, decode speed, TTFT and responses per minute; a chart of active series over 30m / 3h / 24h / 7d; the active series, where a click pins one to the menu bar.
 - **Models**: series ranked by median per-response speed over 1h / 24h / 7d / 30d, with a p10–p90 bar and median TTFT.
 - **Settings**: E2E or decode speed, menu bar metric, split by reasoning effort, launch at login, Codex telemetry setup.
