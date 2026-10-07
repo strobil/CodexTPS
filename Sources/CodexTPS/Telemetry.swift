@@ -106,10 +106,13 @@ private struct HTTPRequest {
 }
 
 /// Pairs `codex.websocket_request` (request sent) with the following
-/// `codex.sse_event` `response.completed` of the same conversation.
+/// `codex.sse_event` `response.completed` of the same conversation and model.
+/// Codex runs side requests on other models (e.g. gpt-5.6-luna) inside a thread while
+/// the main model works, so pairing by conversation alone mixes their timings up.
 struct ResponseTracker {
     private var requestSent: [String: Date] = [:]
     private static let dateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let maxDecodeTPS = 1500.0
 
     mutating func consume(otlpLogs body: Data) -> [Sample] {
         guard let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return [] }
@@ -126,10 +129,11 @@ struct ResponseTracker {
         var out: [Sample] = []
         for a in records {
             guard
-                let conversation = a["conversation.id"] as? String,
+                let thread = a["conversation.id"] as? String,
                 let tsString = a["event.timestamp"] as? String,
                 let ts = try? Self.dateStyle.parse(tsString)
             else { continue }
+            let conversation = "\(thread)|\(a["model"] as? String ?? "")"
 
             switch a["event.name"] as? String {
             case "codex.websocket_request":
@@ -146,9 +150,12 @@ struct ResponseTracker {
                 else { continue }
                 let duration = ts.timeIntervalSince(sent)
                 guard duration > 0.05 else { continue }
+                // Even Ultrafast tops out around 750 t/s; faster means the pair is wrong.
+                let generation = duration - ttftMs / 1000
+                if out1 > 1, generation <= 0 || (out1 - 1) / generation > Self.maxDecodeTPS { continue }
                 let tier = (a["service_tier"] as? String).map { $0 == "fast" ? "priority" : $0 } ?? "default"
                 out.append(Sample(
-                    threadId: conversation,
+                    threadId: thread,
                     key: GroupKey(
                         model: a["model"] as? String ?? "?",
                         effort: a["model_reasoning_effort"] as? String ?? "?",
