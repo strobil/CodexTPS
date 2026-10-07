@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.4.0](https://github.com/strobil/CodexTPS/compare/CodexTPS-v0.3.0...CodexTPS-v0.4.0) (2026-10-07)
+
+
+### Features
+
+* dim the menu bar value when Codex is idle, then show only an icon ([0799e56](https://github.com/strobil/CodexTPS/commit/0799e566a9f02cc11a39b3f24848b8ab5e7acfac))
+* menu bar always shows one series, the same as the Live headline ([782909f](https://github.com/strobil/CodexTPS/commit/782909f9ca2bb03719331075a6a031c98e71089e))
+* show the model name in the menu bar ([54ab27d](https://github.com/strobil/CodexTPS/commit/54ab27dd30df7f74a9614a91269128e930af6c78))
+
+
+### Bug Fixes
+
+* drop the Idle line and show how many chats a series covers ([f92fa05](https://github.com/strobil/CodexTPS/commit/f92fa05408dfa930f14bc48250a546891e0c9294))
+* make the Live list a legend for every series on the chart ([b06a3b1](https://github.com/strobil/CodexTPS/commit/b06a3b103c5ea5d3ec77446ec6fcef7d28bbfd98))
+* pair telemetry requests and responses by thread and model ([1ecff69](https://github.com/strobil/CodexTPS/commit/1ecff69ec55f92f0c42eb1167073da945a35c4b9))
+
+
+### Performance Improvements
+
+* stay idle while the popover is closed ([03107b2](https://github.com/strobil/CodexTPS/commit/03107b289bf8b5054b0fda773954f866fcad9811))
+
 ## [0.3.0](https://github.com/strobil/CodexTPS/compare/CodexTPS-v0.2.0...CodexTPS-v0.3.0) (2026-10-06)
 
 
