@@ -88,6 +88,11 @@ struct NowTab: View {
     var body: some View {
         let model = stats.chartModel(selection.range, speed: tray.speed)
         let active = stats.activeSeries()
+        // The list doubles as the chart's legend: every series drawn in the range, the ones
+        // answering now first, then the rest by how much of the chart they make up.
+        let weight = Dictionary(grouping: model.points, by: \.key).mapValues { $0.reduce(0) { $0 + $1.count } }
+        let listed = active.filter { weight[$0] != nil || model.points.isEmpty }
+            + weight.keys.filter { !active.contains($0) && $0 != .other }.sorted { weight[$0]! > weight[$1]! }
 
         VStack(alignment: .leading, spacing: 12) {
             if let hero = stats.heroSeries(pinned: tray.pinned) {
@@ -104,13 +109,23 @@ struct NowTab: View {
                 .frame(maxHeight: .infinity)
 
             VStack(spacing: 0) {
-                ForEach(active.prefix(4), id: \.self) { key in
-                    SeriesRow(stats: stats, tray: tray, key: key, live: stats.recentStats(key), color: model.color(key))
+                ForEach(listed.prefix(4), id: \.self) { key in
+                    SeriesRow(stats: stats, tray: tray, key: key, live: stats.recentStats(key), color: model.color(key), active: active.contains(key))
                     Divider().opacity(0.5)
                 }
             }
-            if active.count > 4 {
-                Text("+\(active.count - 4) more active").font(.caption).foregroundStyle(.tertiary)
+            if listed.count > 4 {
+                HStack(spacing: 10) {
+                    ForEach(listed.dropFirst(4).prefix(3), id: \.self) { key in
+                        HStack(spacing: 4) {
+                            Circle().fill(SeriesPalette.color(slot: model.color(key))).frame(width: 6, height: 6)
+                            Text(key.label).lineLimit(1)
+                        }
+                    }
+                    if listed.count > 7 { Text("+\(listed.count - 7)") }
+                }
+                .font(.caption)
+                .foregroundStyle(.tertiary)
             }
 
         }
@@ -167,6 +182,8 @@ private struct SeriesRow: View {
     let key: GroupKey
     let live: GroupStats?
     let color: Int
+    /// Answered within the last few minutes; idle rows are dimmed and show when they last ran.
+    let active: Bool
 
     var body: some View {
         let value = stats.trayValue(metric: .avg1m, pinned: key.id, speed: tray.speed)
@@ -181,7 +198,7 @@ private struct SeriesRow: View {
                 Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.tertiary)
             }
             Spacer()
-            Text(live?.ttft.map { String(format: "%.1fs", $0) } ?? "")
+            Text(active ? live?.ttft.map { String(format: "%.1fs", $0) } ?? "" : live.map { "\(ago($0.last.end, now: stats.now)) ago" } ?? "")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
             Text(value.map { "\(Int($0.tps.rounded()))" } ?? "—")
@@ -190,6 +207,7 @@ private struct SeriesRow: View {
                 .frame(minWidth: 32, alignment: .trailing)
         }
         .font(.callout)
+        .opacity(active ? 1 : 0.55)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .onTapGesture { tray.togglePin(key) }
