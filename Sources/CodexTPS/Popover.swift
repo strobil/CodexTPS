@@ -270,6 +270,7 @@ private struct NowChart: View {
 
     var body: some View {
         let range = selection.range
+        let top = yTop()
 
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -278,19 +279,23 @@ private struct NowChart: View {
             }
             Chart {
                 ForEach(model.points) { p in
+                    // Points above the axis sit on its top edge as triangles; hovering shows their value.
+                    let above = p.tps > top
+                    let y = min(p.tps, top)
                     if p.key == shown {
                         let c = SeriesPalette.color(p.key.family)
-                        AreaMark(x: .value("Time", p.bucket), y: .value("TPS", p.tps), series: .value("Segment", "\(p.key.label)#\(p.segment)"), stacking: .unstacked)
+                        AreaMark(x: .value("Time", p.bucket), y: .value("TPS", y), series: .value("Segment", "\(p.key.label)#\(p.segment)"), stacking: .unstacked)
                             .foregroundStyle(LinearGradient(colors: [c.opacity(0.28), c.opacity(0.02)], startPoint: .top, endPoint: .bottom))
                             .interpolationMethod(.monotone)
                     }
-                    LineMark(x: .value("Time", p.bucket), y: .value("TPS", p.tps), series: .value("Segment", "\(p.key.label)#\(p.segment)"))
+                    LineMark(x: .value("Time", p.bucket), y: .value("TPS", y), series: .value("Segment", "\(p.key.label)#\(p.segment)"))
                         .foregroundStyle(SeriesPalette.color(p.key.family))
                         .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                         .interpolationMethod(.monotone)
-                    PointMark(x: .value("Time", p.bucket), y: .value("TPS", p.tps))
+                    PointMark(x: .value("Time", p.bucket), y: .value("TPS", y))
                         .foregroundStyle(SeriesPalette.color(p.key.family))
-                        .symbolSize(12)
+                        .symbol(above ? .triangle : .circle)
+                        .symbolSize(above ? 36 : 12)
                 }
                 if let b = selection.bucket {
                     RuleMark(x: .value("Time", b))
@@ -306,7 +311,7 @@ private struct NowChart: View {
                 }
             }
             .chartXScale(domain: stats.now.addingTimeInterval(-range.duration)...stats.now)
-            .chartYScale(domain: .automatic(includesZero: true))
+            .chartYScale(domain: 0...top)
             .chartXAxis {
                 AxisMarks(values: range.ticks(until: stats.now)) { value in
                     AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
@@ -327,6 +332,27 @@ private struct NowChart: View {
             .chartXSelection(value: Binding(get: { selection.bucket }, set: { selection.bucket = $0.map(range.bucketStart) }))
             .frame(minHeight: 96, maxHeight: .infinity)
         }
+    }
+
+    /// Top of the y axis. A few points far above the rest (e.g. short side requests on a fast
+    /// model) would flatten every line, so the axis covers the others and the menu bar series;
+    /// when more than a quarter of the points are that high, they are no outliers and all fit.
+    private func yTop() -> Double {
+        let values = model.points.map(\.tps).sorted()
+        guard let highest = values.last else { return 10 }
+        guard values.count >= 4 else { return niceCeiling(highest) }
+        let q1 = values.quantile(0.25), q3 = values.quantile(0.75)
+        let fence = q3 + 3 * max(q3 - q1, q3 * 0.25)
+        let outliers = model.points.filter { $0.tps > fence && $0.key != shown }.count
+        guard outliers > 0, outliers * 4 <= values.count else { return niceCeiling(highest) }
+        let kept = model.points.filter { $0.tps <= fence || $0.key == shown }.map(\.tps).max() ?? fence
+        return niceCeiling(kept * 1.1)
+    }
+
+    /// The smallest round number (1, 1.5, 2, 2.5, 3, 4, 5, 6 or 8 times a power of ten) at or above `v`.
+    private func niceCeiling(_ v: Double) -> Double {
+        let magnitude = pow(10, (log10(max(v, 1))).rounded(.down))
+        return [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map { $0 * magnitude }.first { $0 >= v } ?? v
     }
 }
 
