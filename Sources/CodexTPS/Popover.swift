@@ -157,9 +157,12 @@ struct NowTab: View {
             where !listed.contains(key) {
             listed.append(key)
         }
-        let overflow = Array(listed.dropFirst(4))
         // nil when not hovering; .some(nil) when the series has no point at the hovered time.
         let hoveredPoint = { (key: GroupKey) in selection.bucket.map { b in model.points.first { $0.key == key && $0.bucket == b } } }
+        let slots = min(4, listed.count)
+        // While hovering, the rows are the series with a point at that time, in list order.
+        let rows = selection.bucket == nil ? Array(listed.prefix(slots))
+            : Array(listed.filter { (hoveredPoint($0) ?? nil) != nil }.prefix(slots))
         // Whether the menu bar shows a value now rather than only its icon.
         let inMenuBar = shown.flatMap { stats.trayValue(metric: tray.metric, series: $0.id, speed: tray.speed) }
             .map { stats.now.timeIntervalSince($0.end) < MenuBarLabel.hideAfter } ?? false
@@ -173,29 +176,16 @@ struct NowTab: View {
                 Text("No responses yet").font(.callout).foregroundStyle(.secondary)
             }
             VStack(spacing: 0) {
-                ForEach(listed.prefix(4), id: \.self) { key in
+                ForEach(rows, id: \.self) { key in
                     SeriesRow(stats: stats, tray: tray, key: key, ttft: stats.recentTTFT(key, speed: tray.speed), active: active.contains(key),
                               inMenuBar: inMenuBar && key == shown, hovered: hoveredPoint(key))
                     Divider().opacity(0.5)
                 }
-            }
-            // While hovering, the overflow names the series that have a point there, with its value.
-            let chips = selection.bucket == nil ? overflow : overflow.filter { (hoveredPoint($0) ?? nil) != nil }
-            if !chips.isEmpty {
-                HStack(spacing: 10) {
-                    ForEach(chips.prefix(3), id: \.self) { key in
-                        HStack(spacing: 4) {
-                            SeriesMark(key: key, size: 9)
-                            Text(key.label).lineLimit(1)
-                            if let p = hoveredPoint(key) ?? nil {
-                                Text("\(Int(p.tps.rounded()))").monospacedDigit().foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    if chips.count > 3 { Text("+\(chips.count - 3)") }
+                // Blank rows keep the list's height while hovering, so the chart does not jump.
+                ForEach(rows.count..<slots, id: \.self) { _ in
+                    SeriesRow(stats: stats, tray: tray, key: listed[0], ttft: nil, active: false).hidden()
+                    Divider().hidden()
                 }
-                .font(.caption)
-                .foregroundStyle(.tertiary)
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
