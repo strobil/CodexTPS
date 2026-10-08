@@ -27,14 +27,15 @@ struct SetupStatusRow: View {
         }
     }
 
-    /// Telemetry is arriving (or the dot is green for another reason).
-    var isHealthy: Bool { status.color == .green }
+    /// Nothing needs the user's attention: telemetry is arriving, or it has worked and Codex is idle.
+    var isHealthy: Bool { !status.alert }
     var indicatorColor: Color { status.color }
 
     private struct Status {
         let color: Color
         let text: String
         var action: (title: String, run: () -> Void)?
+        var alert = true
     }
 
     private var status: Status {
@@ -52,22 +53,17 @@ struct SetupStatusRow: View {
             if !setup.staleServers.isEmpty {
                 return Status(color: .orange, text: "Restart Codex to start sending telemetry", action: ("Restart Codex…", { SetupAlerts.restart(setup) }))
             }
-            // A recent response with TTFT can only have come through telemetry, so it counts
-            // as connected too (e.g. right after CodexTPS restarts, before Codex sends again).
-            let recent = [stats.telemetrySeenAt, stats.lastTelemetryResponse].compactMap { $0 }.max()
-            if let seen = recent, stats.now.timeIntervalSince(seen) < 600 {
-                let last = stats.lastTelemetryResponse.map { "last response \(ago($0)) ago" } ?? "no responses yet"
-                return Status(color: .green, text: "Telemetry connected · \(last)", action: ("Remove…", { SetupAlerts.uninstall(setup) }))
+            let last = stats.lastTelemetryResponse.map { "last response \(ago($0, now: stats.now)) ago" }
+            if let seen = stats.telemetrySeenAt, stats.now.timeIntervalSince(seen) < 600 {
+                return Status(color: .green, text: "Telemetry connected · \(last ?? "no responses yet")", action: ("Remove…", { SetupAlerts.uninstall(setup) }), alert: false)
+            }
+            // A response with TTFT can only have come through telemetry, so the setup has worked;
+            // Codex sends nothing while idle, which is no reason for an alert.
+            if let last {
+                return Status(color: .secondary, text: "Codex idle · \(last)", action: ("Remove…", { SetupAlerts.uninstall(setup) }), alert: false)
             }
             return Status(color: .gray, text: "Waiting for Codex · restart it if it ran before setup", action: ("Remove…", { SetupAlerts.uninstall(setup) }))
         }
-    }
-
-    private func ago(_ date: Date) -> String {
-        let s = Int(stats.now.timeIntervalSince(date))
-        if s < 60 { return "\(max(s, 0))s" }
-        if s < 3600 { return "\(s / 60)m" }
-        return "\(s / 3600)h"
     }
 }
 

@@ -4,7 +4,7 @@ import SwiftUI
 /// Fixed-size popover: MenuBarExtra does not shrink its window while open, so tabs,
 /// settings and changing series counts must not change the content height.
 struct PopoverView: View {
-    static let size = CGSize(width: 400, height: 480)
+    static let size = CGSize(width: 400, height: 400)
 
     let stats: Stats
     let selection: ChartSelection
@@ -37,12 +37,20 @@ struct PopoverView: View {
             TabBar(selection: selection, settingsBadge: status.isHealthy ? nil : status.indicatorColor)
         }
         .frame(width: Self.size.width, height: Self.size.height)
+        // Drives the per-second clock: onAppear/onDisappear are unreliable for MenuBarExtra.
+        .background(WindowVisibility { window, left, visible in
+            // A probe leaving a window that is no longer the popover must not stop the clock. A window
+            // being deallocated already reads as nil; if it was the popover, the tick stops the clock.
+            if window == nil, left == nil || stats.popoverWindow !== left { return }
+            stats.popoverWindow = window
+            stats.setVisible(visible)
+        })
         .onAppear {
             loginItem.refresh()
             setup.refresh()
+            // Extra trigger: a quick close and reopen can coalesce into no occlusion change.
             stats.setVisible(true)
         }
-        .onDisappear { stats.setVisible(false) }
     }
 }
 
@@ -78,6 +86,57 @@ private struct TabBar: View {
     }
 }
 
+/// Reports whether the hosting window is on screen. MenuBarExtra does not reliably send
+/// onAppear/onDisappear for every open and close, but the window's occlusion state changes.
+private struct WindowVisibility: NSViewRepresentable {
+    /// (current window or nil, window just left or nil, visible)
+    let onChange: @MainActor (NSWindow?, NSWindow?, Bool) -> Void
+
+    func makeNSView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.onChange = onChange
+        return probe
+    }
+
+    func updateNSView(_ probe: Probe, context: Context) {
+        probe.onChange = onChange
+    }
+
+    final class Probe: NSView {
+        var onChange: (@MainActor (NSWindow?, NSWindow?, Bool) -> Void)?
+        nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+        private weak var current: NSWindow?
+
+        deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            let left = current
+            current = window
+            guard let window else {
+                onChange?(nil, left, false)
+                return
+            }
+            // Occlusion covers open and close; becoming key also catches a reopen that the
+            // window server folded into no occlusion change.
+            for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeKeyNotification] {
+                observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.report() }
+                })
+            }
+            report()
+        }
+
+        private func report() {
+            onChange?(window, nil, window.map { $0.isVisible && $0.occlusionState.contains(.visible) } ?? false)
+        }
+    }
+}
+
 // MARK: - Live
 
 struct NowTab: View {
@@ -88,91 +147,58 @@ struct NowTab: View {
     var body: some View {
         let model = stats.chartModel(selection.range, speed: tray.speed)
         let active = stats.activeSeries()
-        // The list doubles as the chart's legend: every series drawn in the range, the ones
-        // answering now first, then the rest by how much of the chart they make up.
+        let shown = stats.displaySeries(pinned: tray.pinned, speed: tray.speed)?.key
+        // The list doubles as the chart's legend: the series the menu bar shows, the ones
+        // answering now, then the rest of the range by how much of the chart they make up.
         let weight = Dictionary(grouping: model.points, by: \.key).mapValues { $0.reduce(0) { $0 + $1.count } }
-        let listed = active.filter { weight[$0] != nil || model.points.isEmpty }
-            + weight.keys.filter { !active.contains($0) && $0 != .other }.sorted { weight[$0]! > weight[$1]! }
+        var listed: [GroupKey] = []
+        for key in [shown].compactMap({ $0 }) + active.filter({ weight[$0] != nil || model.points.isEmpty })
+            + weight.keys.filter({ !active.contains($0) }).sorted(by: { (weight[$0]!, $1.id) > (weight[$1]!, $0.id) })
+            where !listed.contains(key) {
+            listed.append(key)
+        }
+        let overflow = Array(listed.dropFirst(4))
+        // nil when not hovering; .some(nil) when the series has no point at the hovered time.
+        let hoveredPoint = { (key: GroupKey) in selection.bucket.map { b in model.points.first { $0.key == key && $0.bucket == b } } }
+        // Whether the menu bar shows a value now rather than only its icon.
+        let inMenuBar = shown.flatMap { stats.trayValue(metric: tray.metric, series: $0.id, speed: tray.speed) }
+            .map { stats.now.timeIntervalSince($0.end) < MenuBarLabel.hideAfter } ?? false
 
-        VStack(alignment: .leading, spacing: 12) {
-            if let hero = stats.heroSeries(pinned: tray.pinned) {
-                HeroBlock(stats: stats, tray: tray, key: hero, live: stats.recentStats(hero), color: model.color(hero))
-            } else {
-                Text("No responses yet")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
-            }
-
+        return VStack(alignment: .leading, spacing: 12) {
             // Takes whatever height the series list leaves, so a quiet moment shows a bigger chart.
-            NowChart(stats: stats, selection: selection, model: model)
+            NowChart(stats: stats, selection: selection, model: model, shown: shown, speed: tray.speed)
                 .frame(maxHeight: .infinity)
 
+            if listed.isEmpty {
+                Text("No responses yet").font(.callout).foregroundStyle(.secondary)
+            }
             VStack(spacing: 0) {
                 ForEach(listed.prefix(4), id: \.self) { key in
-                    SeriesRow(stats: stats, tray: tray, key: key, live: stats.recentStats(key), color: model.color(key), active: active.contains(key))
+                    SeriesRow(stats: stats, tray: tray, key: key, ttft: stats.recentTTFT(key, speed: tray.speed), active: active.contains(key),
+                              inMenuBar: inMenuBar && key == shown, hovered: hoveredPoint(key))
                     Divider().opacity(0.5)
                 }
             }
-            if listed.count > 4 {
+            // While hovering, the overflow names the series that have a point there, with its value.
+            let chips = selection.bucket == nil ? overflow : overflow.filter { (hoveredPoint($0) ?? nil) != nil }
+            if !chips.isEmpty {
                 HStack(spacing: 10) {
-                    ForEach(listed.dropFirst(4).prefix(3), id: \.self) { key in
+                    ForEach(chips.prefix(3), id: \.self) { key in
                         HStack(spacing: 4) {
-                            Circle().fill(SeriesPalette.color(slot: model.color(key))).frame(width: 6, height: 6)
+                            SeriesMark(key: key, size: 9)
                             Text(key.label).lineLimit(1)
+                            if let p = hoveredPoint(key) ?? nil {
+                                Text("\(Int(p.tps.rounded()))").monospacedDigit().foregroundStyle(.secondary)
+                            }
                         }
                     }
-                    if listed.count > 7 { Text("+\(listed.count - 7)") }
+                    if chips.count > 3 { Text("+\(chips.count - 3)") }
                 }
                 .font(.caption)
                 .foregroundStyle(.tertiary)
             }
-
         }
         .frame(maxHeight: .infinity, alignment: .top)
-    }
-}
-
-private struct HeroBlock: View {
-    let stats: Stats
-    let tray: TraySettings
-    let key: GroupKey
-    let live: GroupStats?
-    let color: Int
-
-    var body: some View {
-        let value = stats.trayValue(metric: .avg1m, pinned: key.id, speed: tray.speed)
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Circle().fill(SeriesPalette.color(slot: color)).frame(width: 8, height: 8)
-                Text("\(key.label) · \(tray.speed.title.lowercased()), 1 min")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if tray.pinned == key.id {
-                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.tertiary)
-                }
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(value.map { "\(Int($0.tps.rounded()))" } ?? "—")
-                    .font(.system(size: 46, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                Text("t/s").font(.title3).foregroundStyle(.secondary)
-            }
-            HStack(spacing: 16) {
-                stat("E2E", live?.e2e.map { "\(Int($0.rounded()))" })
-                stat("Decode", live?.decode.map { "\(Int($0.rounded()))" })
-                stat("TTFT", live?.ttft.map { String(format: "%.1fs", $0) })
-                stat("Resp/min", (live?.count ?? 0) > 0 ? "\(live!.count)" : nil)
-            }
-        }
-    }
-
-    private func stat(_ label: String, _ value: String?) -> some View {
-        HStack(spacing: 4) {
-            Text(label).foregroundStyle(.secondary)
-            Text(value ?? "—").fontWeight(.medium).foregroundStyle(value == nil ? .tertiary : .primary)
-        }
-        .font(.caption.monospacedDigit())
     }
 }
 
@@ -180,38 +206,57 @@ private struct SeriesRow: View {
     let stats: Stats
     let tray: TraySettings
     let key: GroupKey
-    let live: GroupStats?
-    let color: Int
+    /// Mean TTFT over the minute before the latest response.
+    let ttft: TimeInterval?
     /// Answered within the last few minutes; idle rows are dimmed and show when they last ran.
     let active: Bool
+    /// The series the menu bar shows.
+    var inMenuBar = false
+    /// While the chart is hovered: this series' point in the hovered bucket, if it has one.
+    var hovered: ChartPoint?? = nil
 
     var body: some View {
-        let value = stats.trayValue(metric: .avg1m, pinned: key.id, speed: tray.speed)
+        let current = stats.trayValue(metric: .avg1m, series: key.id, speed: tray.speed)?.tps
+        let value = hovered.map { $0?.tps } ?? current
+        let lit = hovered.map { $0 != nil } ?? active
         HStack(spacing: 8) {
-            Circle().fill(SeriesPalette.color(slot: color)).frame(width: 8, height: 8)
+            SeriesMark(key: key, size: 13)
             Text(key.label).lineLimit(1)
-            let chats = stats.activeThreads(key)
-            if chats > 1 {
-                Text("\(chats) chats").font(.caption).foregroundStyle(.tertiary)
+            // Codex threads, subagents included, that fed this series in the last ten minutes.
+            let threads = stats.activeThreads(key)
+            if threads > 1 {
+                Text("\(threads) threads").font(.caption).foregroundStyle(.tertiary)
+                    .help("Codex threads with recorded responses in the last 10 minutes, subagents included")
             }
             if tray.pinned == key.id {
                 Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.tertiary)
+            } else if inMenuBar {
+                Image(systemName: "menubar.rectangle").font(.caption2).foregroundStyle(.tertiary)
+                    .help("Shown in the menu bar")
             }
             Spacer()
-            Text(active ? live?.ttft.map { String(format: "%.1fs", $0) } ?? "" : live.map { "\(ago($0.last.end, now: stats.now)) ago" } ?? "")
+            Text(detail)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
-            Text(value.map { "\(Int($0.tps.rounded()))" } ?? "—")
+            Text(value.map { "\(Int($0.rounded()))" } ?? "—")
                 .fontWeight(.medium)
                 .monospacedDigit()
                 .frame(minWidth: 32, alignment: .trailing)
         }
         .font(.callout)
-        .opacity(active ? 1 : 0.55)
+        .opacity(lit ? 1 : 0.55)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .onTapGesture { tray.togglePin(key) }
         .help("Pin to the menu bar")
+    }
+
+    /// TTFT of the hovered point or of the last minute, or how long ago an idle series ran.
+    private var detail: String {
+        let ttft = { (t: TimeInterval?) in t.map { String(format: "%.1fs", $0) } ?? "" }
+        if let hovered { return ttft(hovered?.ttft) }
+        if active { return ttft(self.ttft) }
+        return stats.lastSample(key.id, speed: .e2e).map { "\(ago($0.end, now: stats.now)) ago" } ?? ""
     }
 }
 
@@ -219,34 +264,45 @@ private struct NowChart: View {
     let stats: Stats
     let selection: ChartSelection
     let model: ChartModel
+    /// The menu bar series, drawn with a fill under its line.
+    let shown: GroupKey?
+    let speed: SpeedMetric
 
     var body: some View {
         let range = selection.range
-        let hovered = selection.bucket.map { b in model.points.filter { $0.bucket == b } }
 
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(readout(hovered, range: range))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
                 Spacer()
                 Segmented(options: ChartSelection.nowRanges, title: \.title, selected: range) { selection.range = $0 }
             }
             Chart {
                 ForEach(model.points) { p in
+                    if p.key == shown {
+                        let c = SeriesPalette.color(p.key.family)
+                        AreaMark(x: .value("Time", p.bucket), y: .value("TPS", p.tps), series: .value("Segment", "\(p.key.label)#\(p.segment)"), stacking: .unstacked)
+                            .foregroundStyle(LinearGradient(colors: [c.opacity(0.28), c.opacity(0.02)], startPoint: .top, endPoint: .bottom))
+                            .interpolationMethod(.monotone)
+                    }
                     LineMark(x: .value("Time", p.bucket), y: .value("TPS", p.tps), series: .value("Segment", "\(p.key.label)#\(p.segment)"))
-                        .foregroundStyle(SeriesPalette.color(slot: model.color(p.key)))
+                        .foregroundStyle(SeriesPalette.color(p.key.family))
                         .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                         .interpolationMethod(.monotone)
                     PointMark(x: .value("Time", p.bucket), y: .value("TPS", p.tps))
-                        .foregroundStyle(SeriesPalette.color(slot: model.color(p.key)))
+                        .foregroundStyle(SeriesPalette.color(p.key.family))
                         .symbolSize(12)
                 }
                 if let b = selection.bucket {
                     RuleMark(x: .value("Time", b))
                         .foregroundStyle(Color.secondary.opacity(0.5))
                         .lineStyle(StrokeStyle(lineWidth: 1))
+                        .annotation(position: .trailing, alignment: .top, spacing: 3, overflowResolution: .init(x: .fit(to: .plot), y: .fit(to: .plot))) {
+                            Text(b.formatted(range.showsDate ? .dateTime.month(.abbreviated).day().hour().minute() : .dateTime.hour().minute()))
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 3)
+                                .background(.background.opacity(0.85), in: RoundedRectangle(cornerRadius: 3))
+                        }
                 }
             }
             .chartXScale(domain: stats.now.addingTimeInterval(-range.duration)...stats.now)
@@ -259,6 +315,9 @@ private struct NowChart: View {
                     }
                 }
             }
+            .chartYAxisLabel(position: .top, alignment: .leading, spacing: 4) {
+                Text("\(speed.title) t/s").font(.caption2).foregroundStyle(.tertiary)
+            }
             .chartYAxis {
                 AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { _ in
                     AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
@@ -266,16 +325,8 @@ private struct NowChart: View {
                 }
             }
             .chartXSelection(value: Binding(get: { selection.bucket }, set: { selection.bucket = $0.map(range.bucketStart) }))
-            .frame(minHeight: 120, maxHeight: .infinity)
+            .frame(minHeight: 96, maxHeight: .infinity)
         }
-    }
-
-    /// Hovered values, or the range description when not hovering.
-    private func readout(_ hovered: [ChartPoint]?, range: ChartRange) -> String {
-        guard let hovered, let b = selection.bucket else { return "Last \(range.title)" }
-        let time = b.formatted(range.showsDate ? .dateTime.month(.abbreviated).day().hour().minute() : .dateTime.hour().minute())
-        let values = hovered.sorted { $0.tps > $1.tps }.map { "\($0.key.label) \(Int($0.tps.rounded()))" }
-        return ([time] + (values.isEmpty ? ["no responses"] : values)).joined(separator: " · ")
     }
 }
 
@@ -289,7 +340,6 @@ struct CompareTab: View {
     var body: some View {
         let range = selection.compareRange
         let rows = stats.distributions(range, speed: tray.speed)
-        let palette = stats.chartModel(range, speed: tray.speed)
         let scale = niceMax(rows.map(\.p90).max() ?? 0)
 
         VStack(alignment: .leading, spacing: 10) {
@@ -314,7 +364,7 @@ struct CompareTab: View {
                 }
                 VStack(spacing: 10) {
                     ForEach(rows.prefix(6)) { r in
-                        DistributionRow(row: r, scale: scale, color: palette.color(r.key))
+                        DistributionRow(row: r, scale: scale)
                     }
                 }
                 if rows.count > 6 {
@@ -322,6 +372,7 @@ struct CompareTab: View {
                 }
                 // Same columns as DistributionRow so ticks sit under the bars.
                 HStack(spacing: 8) {
+                    Color.clear.frame(width: 17, height: 1)
                     Color.clear.frame(width: 128, height: 1)
                     GeometryReader { g in
                         ForEach(Array(stride(from: 0.0, through: scale, by: scale / 4)), id: \.self) { v in
@@ -349,10 +400,10 @@ struct CompareTab: View {
 private struct DistributionRow: View {
     let row: SeriesDistribution
     let scale: Double
-    let color: Int
 
     var body: some View {
         HStack(spacing: 8) {
+            SeriesMark(key: row.key, size: 13)
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.key.label).font(.callout).lineLimit(1).minimumScaleFactor(0.8)
                 Text("\(row.count) resp").font(.caption2).foregroundStyle(.tertiary)
@@ -361,7 +412,7 @@ private struct DistributionRow: View {
 
             GeometryReader { g in
                 let x = { (v: Double) in g.size.width * CGFloat(min(v / scale, 1)) }
-                let c = SeriesPalette.color(slot: color)
+                let c = SeriesPalette.color(row.key.family)
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.secondary.opacity(0.12)).frame(height: 3)
                     Capsule().fill(c.opacity(0.35))
@@ -398,7 +449,12 @@ struct SettingsPanel: View {
             setting("Speed", note: tray.speed == .decode ? "Generation after the first token; needs telemetry" : "Request to completion, including time to first token") {
                 Segmented(options: SpeedMetric.allCases, title: \.title, selected: tray.speed) { tray.speed = $0 }
             }
-            setting("Menu bar", note: tray.pinned.flatMap { id in stats.allSeries.first { $0.id == id }?.label }.map { "Pinned: \($0) · tap a series on Live to change" } ?? "Main series (most tokens in 5 min) · tap a series on Live to pin it") {
+            setting("Menu bar", note: menuBarNote) {
+                if tray.pinned != nil {
+                    // A pin can outlive its row on Live, so it can always be cleared here.
+                    Button("Unpin") { tray.pinned = nil }
+                        .buttonStyle(.plain).font(.caption).foregroundStyle(.tint)
+                }
                 Segmented(options: TrayMetric.allCases, title: \.title, selected: tray.metric) { tray.metric = $0 }
             }
             VStack(alignment: .leading, spacing: 8) {
@@ -424,6 +480,16 @@ struct SettingsPanel: View {
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.plain).font(.callout).foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var menuBarNote: String {
+        guard let id = tray.pinned else { return "Main series (most tokens lately) · tap a series on Live to pin it" }
+        let label = stats.lastSample(id, speed: .e2e)?.key.label ?? id.split(separator: "|").first.map(String.init) ?? id
+        switch stats.displaySeries(pinned: id, speed: tray.speed)?.reason {
+        case .pinExpired: return "Pinned: \(label), silent for over an hour, so the main series is shown"
+        case .pinMissing: return "Pinned: \(label), which has no \(tray.speed == .decode ? "decode " : "")data, so the main series is shown"
+        default: return "Pinned: \(label) · tap a series on Live to change"
         }
     }
 

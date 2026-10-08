@@ -3,16 +3,33 @@ import Charts
 import Observation
 import SwiftUI
 
+/// One color per model family, so every Sol series is orange and every Luna series blue,
+/// whatever the version or tier.
 enum SeriesPalette {
-    private static let light: [UInt32] = [0x2a78d6, 0xeb6834, 0x1baf7a, 0xeda100, 0xe87ba4, 0x008300, 0x4a3aa7, 0xe34948]
-    private static let dark: [UInt32] = [0x3987e5, 0xd95926, 0x199e70, 0xc98500, 0xd55181, 0x008300, 0x9085e9, 0xe66767]
-    private static let other = Color(nsColor: .tertiaryLabelColor)
+    enum Family: Int, CaseIterable {
+        case astra, sol, terra, luna, other
 
-    static var count: Int { light.count }
+        init(model: String) {
+            let words = Set(model.lowercased().split { !$0.isLetter }.map(String.init))
+            self = words.contains("astra") ? .astra : words.contains("sol") ? .sol : words.contains("terra") ? .terra : words.contains("luna") ? .luna : .other
+        }
 
-    static func color(slot: Int) -> Color {
-        guard slot < light.count else { return other }
-        let l = light[slot], d = dark[slot]
+        var symbol: String {
+            switch self {
+            case .astra: "sparkle"
+            case .sol: "sun.max.fill"
+            case .terra: "globe.europe.africa.fill"
+            case .luna: "moon.fill"
+            case .other: "circle.fill"
+            }
+        }
+    }
+
+    // In Family order: astra violet, sol orange, terra green, luna blue, other models teal.
+    private static let light: [UInt32] = [0xab5ade, 0xe8590c, 0x2f9e44, 0x1c7ed6, 0x0c9aa0]
+    private static let dark: [UInt32] = [0xca7cfe, 0xff922b, 0x51cf66, 0x62a7fd, 0x22b8c4]
+    static func color(_ family: Family) -> Color {
+        let l = light[family.rawValue], d = dark[family.rawValue]
         return Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             return NSColor(hex: isDark ? d : l)
@@ -33,9 +50,10 @@ private extension NSColor {
 
 extension GroupKey {
     var label: String {
-        if self == .other { return "Other" }
-        return ([model, effort, tierBadge].filter { !$0.isEmpty }).joined(separator: " · ")
+        ([model, effort, tierBadge].filter { !$0.isEmpty }).joined(separator: " · ")
     }
+
+    var family: SeriesPalette.Family { SeriesPalette.Family(model: model) }
 }
 
 @MainActor

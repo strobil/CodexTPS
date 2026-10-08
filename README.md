@@ -3,16 +3,20 @@
 macOS menu bar app that shows how fast Codex models generate: output tokens per second for the Codex desktop app and CLI, with time to first token, per model and service tier.
 
 <p>
-  <img src="docs/popover-light.png" width="49%" alt="Live tab: current speed in large type, chart of active series, series list">
+  <img src="docs/popover-light.png" width="49%" alt="Live tab: speed chart of the series over 24 hours with the series list below, the menu bar series first">
   <img src="docs/popover-dark.png" width="49%" alt="Models tab in dark mode: series ranked by median speed with p10–p90 bar and TTFT">
 </p>
 
-- **Menu bar**: model and speed of one series, e.g. `⚡ 6.1-sol 50 t/s`: the pinned series, or else the one that generated the most tokens in the last 5 minutes (the same series the Live tab leads with). A 1-minute token-weighted average by default, or 5 minutes, or the latest response. After 2 minutes without responses the value turns grey with its age (`6.1-sol 47 t/s · 12m`); after an hour only an icon remains. During a pause it keeps the last value instead of blanking.
-- **Live**: the pinned or most recent series in large type with E2E speed, decode speed, TTFT and responses per minute; a chart of active series over 30m / 3h / 24h / 7d; the active series, where a click pins one to the menu bar.
+- **Menu bar**: model and speed of one series, e.g. `⚡ 6.1-sol 50 t/s`: the pinned series, or else the one generating the most tokens lately, each response counting half as much for every 5 minutes of age (the same series the Live list starts with). A pin silent for an hour gives way while another series answers. A 1-minute token-weighted average by default, or 5 minutes, or the latest response. After 2 minutes without responses the value turns grey with its age (`6.1-sol 47 t/s · 12m`); after an hour only an icon remains. During a pause it keeps the last value instead of blanking.
+- **Live**: a chart of the series over 30m / 3h / 24h / 7d and the series list: the menu bar series first, then the ones answering now, each with its 1-minute speed and TTFT. Hovering the chart switches the list, and the series beyond it, to that moment's values; a click on a series pins it to the menu bar.
 - **Models**: series ranked by median per-response speed over 1h / 24h / 7d / 30d, with a p10–p90 bar and median TTFT.
 - **Settings**: E2E or decode speed, menu bar metric, split by reasoning effort, launch at login, Codex telemetry setup.
 
 A series is a model × service tier: `–` default, `⚡` Fast (`fast` / `priority`), `⚡⚡` Ultrafast (`ultrafast`); other tiers show by name. Reasoning effort barely changes decode speed, so splitting series by it is optional.
+
+Colors and marks follow the model family, whatever the version or tier: ✦ Astra violet, ☀ Sol orange, 🌍 Terra green, ☾ Luna blue, other models teal (SF Symbols in the app). Series of one family share the color and differ by name in the list.
+
+CodexTPS is an independent project, not affiliated with, endorsed or sponsored by OpenAI.
 
 ## Install
 
@@ -41,7 +45,7 @@ The same steps work headless: `CodexTPS --setup-status`, `--setup-install`, `--s
 
 ## How it works
 
-CodexTPS listens for OTLP/HTTP JSON on `127.0.0.1:43180` only. It pairs each `codex.websocket_request` (request sent) with the next `codex.sse_event` `response.completed` of the same conversation, which carries `ttft_ms`, output and reasoning tokens, model, reasoning effort and service tier. Each response becomes one row in `~/Library/Application Support/CodexTPS/metrics.sqlite`; history starts when telemetry is turned on.
+CodexTPS listens for OTLP/HTTP JSON on `127.0.0.1:43180` only. It pairs each request event (`codex.websocket_request`, or `codex.api_request` over HTTP) with the `codex.sse_event` `response.completed` of the same conversation that reports usage, which carries `ttft_ms`, output and reasoning tokens, model, reasoning effort and service tier. Telemetry has no request id, so a pair that contradicts Codex's TTFT or implies an implausible speed is dropped. Each response becomes one row in `~/Library/Application Support/CodexTPS/metrics.sqlite`; history starts when telemetry is turned on.
 
 - **E2E** = output tokens / (request sent → response completed). Includes time to first token, so short answers look slower.
 - **Decode** = (output tokens − 1) / (duration − TTFT): the generation speed itself.

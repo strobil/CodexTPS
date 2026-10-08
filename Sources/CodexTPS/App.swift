@@ -36,26 +36,24 @@ struct CodexTPSApp: App {
 struct MenuBarLabel: View {
     let stats: Stats
     let tray: TraySettings
-    /// Fixed clock for snapshots.
-    var now: Date?
-
     static let staleAfter: TimeInterval = 2 * 60
-    static let hideAfter: TimeInterval = 60 * 60
+    static let hideAfter: TimeInterval = Stats.pinExpiry
 
     var body: some View {
         // Stats.now advances every minute (every second while the popover is open), which is
         // enough for minute-precision ages. TimelineView here sent MenuBarExtra into a layout loop.
-        label(at: now ?? stats.now)
+        label(at: stats.now)
     }
 
     @ViewBuilder
     private func label(at date: Date) -> some View {
-        // Same series as the Live tab's headline, so the two never disagree.
-        let v = stats.trayValue(metric: tray.metric, pinned: stats.heroSeries(pinned: tray.pinned)?.id, speed: tray.speed)
-        let age = v.map { date.timeIntervalSince($0.end) } ?? .infinity
-        if let v, age < Self.hideAfter {
+        // Same series as the first row of the Live list (Stats.displaySeries), so the two never disagree.
+        let series = stats.displaySeries(pinned: tray.pinned, speed: tray.speed)
+        let v = series.flatMap { stats.trayValue(metric: tray.metric, series: $0.key.id, speed: tray.speed) }
+        let silence = v.map { date.timeIntervalSince($0.end) } ?? .infinity
+        if let v, silence < Self.hideAfter {
             let model = v.model.hasPrefix("gpt-") ? String(v.model.dropFirst(4)) : v.model
-            if age < Self.staleAfter {
+            if silence < Self.staleAfter {
                 Text("\(v.badge)\(v.badge.isEmpty ? "" : " ")\(model) \(Int(v.tps.rounded())) t/s")
                     .monospacedDigit()
             } else {

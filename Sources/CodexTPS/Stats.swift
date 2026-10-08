@@ -1,22 +1,9 @@
+import AppKit
 import Foundation
 import Observation
 import OSLog
 
 private let log = Logger(subsystem: "local.codex-tps", category: "samples")
-
-struct GroupStats: Identifiable {
-    let key: GroupKey
-    /// Latest response in the whole history, so idle series still show when they last ran.
-    let last: Sample
-    /// Token-weighted rates over the live window; nil when the series was idle there
-    /// (decode also when none of its responses came with telemetry).
-    let e2e: Double?
-    let decode: Double?
-    let ttft: TimeInterval?
-    let count: Int
-
-    var id: GroupKey { key }
-}
 
 /// Grafana's "Last …" quick ranges up to 90 days.
 enum ChartRange: String, CaseIterable, Identifiable {
@@ -121,6 +108,7 @@ struct ChartPoint: Identifiable {
     let bucket: Date
     let tps: Double
     let count: Int
+    let ttft: TimeInterval?
     /// Consecutive run of buckets within the series; lines are not drawn across segments.
     var segment: Int
 
@@ -152,15 +140,6 @@ extension Array where Element == Double {
 
 struct ChartModel {
     let points: [ChartPoint]
-    /// Colored series in slot order, then "Other" when series were folded.
-    let legend: [GroupKey]
-    let palette: [GroupKey: Int]
-    /// Series with data in the range.
-    let visible: Set<GroupKey>
-
-    func color(_ key: GroupKey) -> Int {
-        palette[key] ?? SeriesPalette.count
-    }
 }
 
 @MainActor
@@ -168,7 +147,7 @@ struct ChartModel {
 final class Stats {
     static let liveWindow: TimeInterval = 60
     static let historyWindow: TimeInterval = ChartRange.d90.duration
-    /// Table rows and legend entries cover series seen within this horizon.
+    /// `allSeries` (for --bench) covers series seen within this horizon.
     static let seriesWindow: TimeInterval = 24 * 3600
 
     /// Responses as recorded.
@@ -185,10 +164,20 @@ final class Stats {
         }
     }
     private(set) var now = Date()
+    /// Fixed clock for --snapshot renders, so every view judges ages and pin expiry alike.
+    @ObservationIgnored var frozenNow: Date? {
+        didSet { now = frozenNow ?? Date() }
+    }
+    /// Bumped whenever `samples` changes. Per-series values derived from samples are cached
+    /// against it, because the menu bar and the popover ask for them on every render.
+    private(set) var version = 0
+    @ObservationIgnored private var cache: [String: Any] = [:]
+    @ObservationIgnored private var cacheVersion = -1
     /// Set once stored responses have been loaded.
     private(set) var loaded = false
-    /// Color slot per series, persisted so a series keeps its color across restarts.
-    private(set) var slots: [String: Int] = Stats.loadSlots()
+    /// Latest response of each series, and latest with decode timing, so lookups need no scan.
+    private var latest: [String: Sample] = [:]
+    private var latestDecode: [String: Sample] = [:]
 
     private var telemetry: TelemetryReceiver?
     /// Last time Codex delivered any telemetry batch.
@@ -201,20 +190,34 @@ final class Stats {
     private var timer: Timer?
     private var clock: Timer?
 
+    /// The popover's window, reported by PopoverView; the clock stops once it is off screen.
+    @ObservationIgnored weak var popoverWindow: NSWindow?
+
     /// The popover is open: tick `now` every second for relative times and the chart's
     /// right edge. Closed, nothing depends on wall time, so the app stays idle.
     func setVisible(_ visible: Bool) {
+        guard visible != (clock != nil) else { return }
         clock?.invalidate()
         clock = nil
         guard visible else { return }
-        now = Date()
+        now = frozenNow ?? Date()
         clock = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.now = Date() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Backstop for a missed hide notification; a reopen restarts the clock on its own.
+                guard let window = self.popoverWindow, window.isVisible else {
+                    self.setVisible(false)
+                    return
+                }
+                self.now = self.frozenNow ?? Date()
+            }
         }
         clock?.tolerance = 0.2
     }
 
     func start() {
+        // Per-series color slots of earlier builds; colors now follow the model family.
+        for key in ["seriesSlots", "seriesColors", "seriesShades"] { UserDefaults.standard.removeObject(forKey: key) }
         add(db.load(since: Date().addingTimeInterval(-Self.historyWindow)))
         loaded = true
 
@@ -240,105 +243,120 @@ final class Stats {
         timer?.tolerance = 10
     }
 
-    /// Value for the menu bar: the latest response or a token-weighted average,
-    /// over all series or only the given one. The window ends at the latest matching
-    /// response rather than now, so an idle pause keeps the last value instead of blanking.
-    func trayValue(metric: TrayMetric, pinned: String?, speed: SpeedMetric) -> (tps: Double, badge: String, model: String, end: Date)? {
-        let series = samples.filter { (pinned == nil || $0.key.id == pinned) && (speed == .e2e || $0.generationTime != nil) }
-        guard let last = series.last else { return nil }
+    /// Samples that ended at or after `date`, found by binary search (samples are time-ordered).
+    private func samples(since date: Date) -> ArraySlice<Sample> {
+        var lo = samples.startIndex, hi = samples.endIndex
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if samples[mid].end < date { lo = mid + 1 } else { hi = mid }
+        }
+        return samples[lo...]
+    }
+
+    /// Value for the menu bar: one series' latest response or token-weighted average. The
+    /// window ends at its latest response with a value at `speed` rather than now, so an idle
+    /// pause keeps the last value instead of blanking.
+    func trayValue(metric: TrayMetric, series id: String, speed: SpeedMetric) -> (tps: Double, badge: String, model: String, end: Date)? {
+        cached("tray|\(metric.rawValue)|\(id)|\(speed.rawValue)") { computeTrayValue(metric: metric, series: id, speed: speed) }
+    }
+
+    private func computeTrayValue(metric: TrayMetric, series id: String, speed: SpeedMetric) -> (tps: Double, badge: String, model: String, end: Date)? {
+        guard let last = lastSample(id, speed: speed) else { return nil }
         if metric == .last { return [last].rate(speed).map { ($0, last.key.tierBadge, last.key.model, last.end) } }
-        let cutoff = last.end.addingTimeInterval(-metric.window)
-        let pool = series.filter { $0.end >= cutoff }
-        let badges = Set(pool.map(\.key.tierBadge))
-        return pool.rate(speed).map { ($0, badges.count == 1 ? badges.first! : "", last.key.model, last.end) }
+        let pool = samples(since: last.end.addingTimeInterval(-metric.window)).filter { $0.key == last.key && $0.measures(speed) }
+        return pool.rate(speed).map { ($0, last.key.tierBadge, last.key.model, last.end) }
     }
 
-    /// One row per series in the history, in color-slot order, so rows neither
-    /// appear, vanish nor reorder as series go idle (the popover window does not shrink).
-    var groups: [GroupStats] {
-        let cutoff = now.addingTimeInterval(-Self.liveWindow)
-        let byKey = Dictionary(grouping: samples.filter { $0.end >= now.addingTimeInterval(-Self.seriesWindow) }, by: \.key)
-        return allSeries.map { key in
-            let list = byKey[key]!
-            let live = list.filter { $0.end >= cutoff }
-            return GroupStats(
-                key: key,
-                last: list.last!,
-                e2e: live.rate(.e2e),
-                decode: live.rate(.decode),
-                ttft: live.meanTTFT,
-                count: live.count
-            )
-        }
+    /// A series' latest response that has a value at `speed`.
+    func lastSample(_ id: String, speed: SpeedMetric) -> Sample? {
+        speed == .e2e ? latest[id] : latestDecode[id]
     }
 
-    /// Series seen in the last 24 hours, in color-slot order.
+    /// Series seen in the last 24 hours.
     var allSeries: [GroupKey] {
-        let cutoff = now.addingTimeInterval(-Self.seriesWindow)
-        var seen = Set<GroupKey>()
-        for s in samples.reversed() {
-            guard s.end >= cutoff else { break }
-            seen.insert(s.key)
-        }
-        return seen.sorted { slot(of: $0) < slot(of: $1) }
+        latest.values.filter { now.timeIntervalSince($0.end) < Self.seriesWindow }.map(\.key)
     }
 
-    /// A series' figures over the minute before its latest response, so they stay put
-    /// during a pause instead of turning into dashes (same anchoring as the menu bar).
-    func recentStats(_ key: GroupKey) -> GroupStats? {
-        guard let last = samples.last(where: { $0.key == key }) else { return nil }
-        let cutoff = last.end.addingTimeInterval(-Self.liveWindow)
-        let window = samples.filter { $0.key == key && $0.end >= cutoff }
-        return GroupStats(
-            key: key,
-            last: last,
-            e2e: window.rate(.e2e),
-            decode: window.rate(.decode),
-            ttft: window.meanTTFT,
-            count: window.count
-        )
+    /// A series' mean TTFT over the minute before its latest response with a value at `speed`,
+    /// the same window as its menu bar value, so it stays put during a pause.
+    func recentTTFT(_ key: GroupKey, speed: SpeedMetric) -> TimeInterval? {
+        cached("ttft|\(key.id)|\(speed.rawValue)") {
+            guard let last = lastSample(key.id, speed: speed) else { return nil }
+            return samples(since: last.end.addingTimeInterval(-Self.liveWindow))
+                .filter { $0.key == key && $0.end <= last.end }
+                .meanTTFT
+        }
     }
 
     /// Distinct Codex threads of a series that answered within `window`.
     func activeThreads(_ key: GroupKey, within window: TimeInterval = 10 * 60) -> Int {
-        let cutoff = now.addingTimeInterval(-window)
-        var threads = Set<String>()
-        for s in samples.reversed() {
-            guard s.end >= cutoff else { break }
-            if s.key == key { threads.insert(s.threadId) }
-        }
-        return threads.count
+        Set(samples(since: now.addingTimeInterval(-window)).filter { $0.key == key }.map(\.threadId)).count
     }
 
     /// Series that answered within `window`, most recent first.
     func activeSeries(within window: TimeInterval = 10 * 60) -> [GroupKey] {
-        let cutoff = now.addingTimeInterval(-window)
         var seen: [GroupKey] = []
-        for s in samples.reversed() {
-            guard s.end >= cutoff else { break }
-            if !seen.contains(s.key) { seen.append(s.key) }
+        for s in samples(since: now.addingTimeInterval(-window)).reversed() where !seen.contains(s.key) {
+            seen.append(s.key)
         }
         return seen
     }
 
-    /// The series the Live tab and the menu bar follow: the pinned one if it has data, else
-    /// the one that generated the most tokens in the last five minutes, so brief side
-    /// requests (e.g. gpt-5.6-luna inside a thread) do not take over; else the latest to answer.
-    func heroSeries(pinned: String?) -> GroupKey? {
-        if let pinned, let key = samples.last(where: { $0.key.id == pinned })?.key { return key }
-        let cutoff = (samples.last?.end ?? now).addingTimeInterval(-5 * 60)
-        var tokens: [GroupKey: Int] = [:]
-        for s in samples.reversed() {
-            guard s.end >= cutoff else { break }
-            tokens[s.key, default: 0] += s.outputTokens
+    /// The main series: the one generating the most tokens lately, each response weighted by
+    /// its age before the latest response (halving every five minutes), so a brief side
+    /// request (e.g. gpt-5.6-luna inside a thread) does not take over during a pause. Only
+    /// responses with a value at `speed` count, so under Decode a series of one-chunk answers
+    /// cannot take the menu bar and leave it without a value.
+    func mainSeries(speed: SpeedMetric) -> GroupKey? {
+        cached("main|\(speed.rawValue)") {
+            guard let latest = samples.last(where: { $0.measures(speed) }) else { return nil }
+            var tokens: [GroupKey: (count: Double, last: Date)] = [:]
+            for s in samples(since: latest.end.addingTimeInterval(-3600)) where s.measures(speed) {
+                let weight = exp2(-latest.end.timeIntervalSince(s.end) / 300)
+                tokens[s.key] = ((tokens[s.key]?.count ?? 0) + Double(s.outputTokens) * weight, s.end)
+            }
+            // Ties go to the series that answered last, then to the lower id, so the pick never flickers.
+            return tokens.max { a, b in
+                (a.value.count, a.value.last, b.key.id) < (b.value.count, b.value.last, a.key.id)
+            }?.key
         }
-        return tokens.max { $0.value < $1.value }?.key ?? samples.last?.key
+    }
+
+    /// A pinned series silent for this long no longer hides series that are working.
+    static let pinExpiry: TimeInterval = 60 * 60
+
+    enum Display {
+        case pin, main
+        /// The pin is set but has been silent for `pinExpiry` while another series answered.
+        case pinExpired
+        /// The pin is set but its series has no data in the history.
+        case pinMissing
+    }
+
+    /// The series the menu bar shows and the Live list leads with, and why. Silence is measured
+    /// on responses with a value at `speed`, the same ones the menu bar value comes from.
+    func displaySeries(pinned: String?, speed: SpeedMetric) -> (key: GroupKey, reason: Display)? {
+        let main = mainSeries(speed: speed)
+        guard let pinned else { return main.map { ($0, .main) } }
+        guard let pin = lastSample(pinned, speed: speed) else { return main.map { ($0, .pinMissing) } }
+        if let main, now.timeIntervalSince(pin.end) >= Self.pinExpiry,
+           let mainEnd = lastSample(main.id, speed: speed)?.end, mainEnd > pin.end {
+            return (main, .pinExpired)
+        }
+        return (pin.key, .pin)
     }
 
     /// Per-response rate distribution of each series over a range, fastest median first.
     func distributions(_ range: ChartRange, speed: SpeedMetric) -> [SeriesDistribution] {
-        let cutoff = now.addingTimeInterval(-range.duration)
-        let byKey = Dictionary(grouping: samples.filter { $0.end >= cutoff }, by: \.key)
+        // Minute resolution is enough for the range edge; caching keeps the open Models tab cheap.
+        let minute = Date(timeIntervalSince1970: (now.timeIntervalSince1970 / 60).rounded(.down) * 60)
+        return cached("dist|\(range.rawValue)|\(speed.rawValue)|\(minute.timeIntervalSince1970)") {
+            computeDistributions(range, speed: speed, at: minute)
+        }
+    }
+
+    private func computeDistributions(_ range: ChartRange, speed: SpeedMetric, at end: Date) -> [SeriesDistribution] {
+        let byKey = Dictionary(grouping: samples(since: end.addingTimeInterval(-range.duration)), by: \.key)
         return byKey.compactMap { key, list in
             let rates = list.compactMap { speed == .e2e ? $0.tps : $0.decodeTPS }.sorted()
             guard rates.count >= 3 else { return nil }
@@ -352,48 +370,30 @@ final class Stats {
                 count: rates.count
             )
         }
-        .sorted { $0.median > $1.median }
+        .sorted { ($0.median, $1.key.id) > ($1.median, $0.key.id) }
     }
 
-    /// Everything the chart, legend and table colors need for one range. Series are ranked
-    /// by how recently they ran; the eight most recent keep distinct colors (their remembered
-    /// slot when free) and the rest fold into a single "Other" series.
+    /// Chart points of one range, one line per series.
     func chartModel(_ range: ChartRange, speed: SpeedMetric) -> ChartModel {
-        let cutoff = now.addingTimeInterval(-range.duration)
-        let seriesCutoff = now.addingTimeInterval(-Self.seriesWindow)
-        var lastSeen: [GroupKey: Date] = [:]
-        for s in samples.reversed() {
-            guard s.end >= min(cutoff, seriesCutoff) else { break }
-            if lastSeen[s.key] == nil { lastSeen[s.key] = s.end }
+        // Recomputed when data changes or the range edge crosses a bucket, not every second;
+        // computed for that bucket edge so the cached model matches its key.
+        let edge = range.bucketStart(now)
+        return cached("chart|\(range.rawValue)|\(speed.rawValue)|\(edge.timeIntervalSince1970)") {
+            computeChartModel(range, speed: speed, at: edge.addingTimeInterval(range.bucket))
         }
-        let ranked = lastSeen.keys.sorted { lastSeen[$0]! > lastSeen[$1]! }
+    }
 
-        var palette: [GroupKey: Int] = [:]
-        var used = Set<Int>()
-        for key in ranked.prefix(SeriesPalette.count) {
-            let s = slot(of: key)
-            if s < SeriesPalette.count, !used.contains(s) {
-                palette[key] = s
-                used.insert(s)
-            }
-        }
-        for key in ranked.prefix(SeriesPalette.count) where palette[key] == nil {
-            let s = (0..<SeriesPalette.count).first { !used.contains($0) }!
-            palette[key] = s
-            used.insert(s)
-        }
-        let folded = ranked.count > SeriesPalette.count
-        if folded { palette[GroupKey.other] = SeriesPalette.count }
-        let display: (GroupKey) -> GroupKey = { palette[$0] == nil ? GroupKey.other : $0 }
-
-        let measurable = samples.filter { $0.end >= cutoff && (speed == .e2e || $0.generationTime != nil) }
+    private func computeChartModel(_ range: ChartRange, speed: SpeedMetric, at end: Date) -> ChartModel {
+        let cutoff = end.addingTimeInterval(-range.duration)
+        let measurable = samples(since: cutoff).filter { $0.measures(speed) }
         let buckets = Dictionary(grouping: measurable) { s in
-            BucketKey(key: display(s.key), bucket: range.bucketStart(s.end))
+            BucketKey(key: s.key, bucket: range.bucketStart(s.end))
         }
         var points = buckets.compactMap { b, list in
-            list.rate(speed).map { ChartPoint(key: b.key, bucket: b.bucket, tps: $0, count: list.count, segment: 0) }
+            list.rate(speed).map { ChartPoint(key: b.key, bucket: b.bucket, tps: $0, count: list.count, ttft: list.meanTTFT, segment: 0) }
         }
-        .sorted { $0.bucket < $1.bucket }
+        // Stable order within a bucket keeps the z-order of overlapping marks from shuffling.
+        .sorted { ($0.bucket, $0.key.id) < ($1.bucket, $1.key.id) }
 
         // A new segment starts after a missing bucket so lines do not bridge idle stretches.
         var previous: [GroupKey: (bucket: Date, segment: Int)] = [:]
@@ -406,32 +406,15 @@ final class Stats {
             points[i].segment = segment
             previous[p.key] = (p.bucket, segment)
         }
-
-        let legend = ranked.prefix(SeriesPalette.count).sorted { palette[$0]! < palette[$1]! } + (folded ? [GroupKey.other] : [])
-        return ChartModel(points: points, legend: legend, palette: palette, visible: Set(points.map(\.key)))
+        return ChartModel(points: points)
     }
 
-    func slot(of key: GroupKey) -> Int {
-        slots[key.id] ?? Int.max
-    }
-
-    /// Keeps a series' remembered slot unless another series in the current history holds it;
-    /// otherwise takes the lowest slot free among series currently in history.
-    private func assignSlot(_ key: GroupKey) {
-        let present = Set(allSeries.map(\.id)).subtracting([key.id])
-        let taken = Set(present.compactMap { slots[$0] })
-        if let s = slots[key.id], s < SeriesPalette.count, !taken.contains(s) { return }
-        slots = slots.filter { present.contains($0.key) || $0.value >= SeriesPalette.count || !taken.contains($0.value) }
-        slots[key.id] = (0...).first { !taken.contains($0) }!
-        UserDefaults.standard.set(slots, forKey: "seriesSlots")
-    }
-
-    /// Slot keys used to end in "|true"/"|false" before the tier was stored verbatim.
-    private static func loadSlots() -> [String: Int] {
-        let raw = UserDefaults.standard.dictionary(forKey: "seriesSlots") as? [String: Int] ?? [:]
-        return Dictionary(raw.map { k, v in
-            (k.hasSuffix("|true") ? k.dropLast(5) + "|priority" : k.hasSuffix("|false") ? k.dropLast(6) + "|default" : k, v)
-        }, uniquingKeysWith: { a, _ in a })
+    /// Updates the latest-response lookups; samples may come in any order.
+    private func index<S: Sequence<Sample>>(_ list: S) {
+        for s in list {
+            if latest[s.key.id].map({ $0.end <= s.end }) ?? true { latest[s.key.id] = s }
+            if s.generationTime != nil, latestDecode[s.key.id].map({ $0.end <= s.end }) ?? true { latestDecode[s.key.id] = s }
+        }
     }
 
     private struct BucketKey: Hashable {
@@ -446,17 +429,19 @@ final class Stats {
                 log.info("\(s.key.model, privacy: .public) \(s.key.effort, privacy: .public) tier=\(s.key.tier, privacy: .public) e2e=\(Int(s.tps)) decode=\(s.decodeTPS.map { String(Int($0)) } ?? "-", privacy: .public) ttft=\(s.ttft ?? -1) out=\(s.outputTokens)")
             }
         }
-        // Telemetry arrives in time order, so the common case is a plain append.
+        // Telemetry arrives in time order, so the common case is a plain append; a late batch
+        // from another Codex process only needs a re-sort.
         let ordered = new.sorted { $0.end < $1.end }
-        if let last = stored.last, let first = ordered.first, first.end < last.end {
-            stored.append(contentsOf: ordered)
+        let added = ordered.map(grouped)
+        let late = stored.last.map { ordered[0].end < $0.end } ?? false
+        stored.append(contentsOf: ordered)
+        samples.append(contentsOf: added)
+        if late {
             stored.sort { $0.end < $1.end }
-            regroup()
-        } else {
-            stored.append(contentsOf: ordered)
-            samples.append(contentsOf: ordered.map(grouped))
-            for key in Set(ordered.map { grouped($0).key }) where slots[key.id] == nil { assignSlot(key) }
+            samples.sort { $0.end < $1.end }
         }
+        index(added)
+        version += 1
     }
 
     private func grouped(_ s: Sample) -> Sample {
@@ -468,15 +453,39 @@ final class Stats {
 
     private func regroup() {
         samples = stored.map(grouped)
-        for key in allSeries { assignSlot(key) }
+        latest = [:]
+        latestDecode = [:]
+        index(samples)
+        version += 1
     }
 
     private func prune() {
-        now = Date()
+        now = frozenNow ?? Date()
         let cutoff = now.addingTimeInterval(-Self.historyWindow)
         // Mutating an observed array, even to remove nothing, re-renders every view reading it.
         guard let first = stored.first, first.end < cutoff else { return }
         stored.removeAll { $0.end < cutoff }
         samples.removeAll { $0.end < cutoff }
+        latest = latest.filter { $0.value.end >= cutoff }
+        latestDecode = latestDecode.filter { $0.value.end >= cutoff }
+        version += 1
+    }
+
+    /// Memoizes a value derived from `samples` until they change. Reading `version` keeps
+    /// SwiftUI's observation of the caller tied to sample changes.
+    private func cached<T>(_ key: String, _ make: () -> T) -> T {
+        // Time-keyed entries accumulate while the popover stays open without new data.
+        if cacheVersion != version || cache.count > 256 {
+            cache.removeAll(keepingCapacity: true)
+            cacheVersion = version
+        }
+        if let hit = cache[key] as? Box<T> { return hit.value }
+        let value = make()
+        cache[key] = Box(value: value)
+        return value
+    }
+
+    private struct Box<T> {
+        let value: T
     }
 }

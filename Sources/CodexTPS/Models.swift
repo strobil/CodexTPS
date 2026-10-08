@@ -11,9 +11,6 @@ struct GroupKey: Hashable, Sendable {
     /// The same series with reasoning effort left out of the grouping.
     var withoutEffort: GroupKey { GroupKey(model: model, effort: "", tier: tier) }
 
-    /// Stand-in for series beyond the palette on long ranges.
-    static let other = GroupKey(model: "Other", effort: "", tier: "default")
-
     var tierBadge: String {
         switch tier {
         case "default": ""
@@ -25,6 +22,10 @@ struct GroupKey: Hashable, Sendable {
 }
 
 struct Sample: Sendable {
+    /// Even Ultrafast tops out around 750 t/s; a higher rate means the timing is not a
+    /// real generation measurement (tokens flushed in one burst, or a mispaired request).
+    static let maxPlausibleTPS = 1500.0
+
     /// Codex thread (OTEL `conversation.id`); with `end` it identifies a response.
     var threadId: String
     var key: GroupKey
@@ -39,11 +40,19 @@ struct Sample: Sendable {
     /// End-to-end rate, including time to first token.
     var tps: Double { Double(outputTokens) / duration }
 
-    /// Time spent generating after the first token, when that can be told apart.
+    /// Time spent generating after the first token, when that can be told apart. Nil when it
+    /// is too short or implies an implausible rate, e.g. a short answer delivered in one chunk:
+    /// its E2E timing still counts, it just says nothing about decode speed.
     var generationTime: TimeInterval? {
         guard let ttft, outputTokens > 1 else { return nil }
         let t = duration - ttft
-        return t > 0.05 ? t : nil
+        guard t > 0.05, Double(outputTokens - 1) / t <= Self.maxPlausibleTPS else { return nil }
+        return t
+    }
+
+    /// Whether the response has a value at `speed`: decode needs a generation time.
+    func measures(_ speed: SpeedMetric) -> Bool {
+        speed == .e2e || generationTime != nil
     }
 
     /// Decode rate: tokens after the first divided by the time after the first.

@@ -77,7 +77,7 @@ final class TraySettings {
         didSet { UserDefaults.standard.set(metric.rawValue, forKey: "trayMetric") }
     }
 
-    /// `GroupKey.id` of the series shown in the menu bar; nil means all series.
+    /// `GroupKey.id` of the series pinned to the menu bar; nil shows the main series.
     var pinned: String? = UserDefaults.standard.string(forKey: "trayPinned") {
         didSet { UserDefaults.standard.set(pinned, forKey: "trayPinned") }
     }

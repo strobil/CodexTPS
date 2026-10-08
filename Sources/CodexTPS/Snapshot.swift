@@ -52,11 +52,14 @@ enum Snapshot {
                 if ChartSelection.compareRanges.contains(r) { selection.compareRange = r }
             }
             if let b = stats.chartModel(selection.range, speed: tray.speed).points.last?.bucket, args.contains("hover") { selection.bucket = b }
+            if args.contains("tray") {
+                // idle=<seconds> places the clock that long after the latest response, for every view.
+                let offset = args.first { $0.hasPrefix("idle=") }.flatMap { TimeInterval($0.dropFirst(5)) } ?? 0
+                stats.frozenNow = (stats.samples.last?.end ?? Date()).addingTimeInterval(offset)
+            }
             let view = VStack(alignment: .leading, spacing: 0) {
                 if args.contains("tray") {
-                    let offset = args.first { $0.hasPrefix("idle=") }.flatMap { TimeInterval($0.dropFirst(5)) } ?? 0
-                    // idle=<seconds> places the clock that long after the latest response.
-                    MenuBarLabel(stats: stats, tray: tray, now: (stats.samples.last?.end ?? Date()).addingTimeInterval(offset))
+                    MenuBarLabel(stats: stats, tray: tray)
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
                 }
