@@ -98,8 +98,10 @@ enum ChartRange: String, CaseIterable, Identifiable {
         return out
     }
 
+    /// Buckets of an hour or more start on local clock boundaries (days at local midnight), like the ticks.
     func bucketStart(_ date: Date) -> Date {
-        Date(timeIntervalSince1970: (date.timeIntervalSince1970 / bucket).rounded(.down) * bucket)
+        let offset = bucket >= 3600 ? TimeInterval(TimeZone.current.secondsFromGMT(for: date)) : 0
+        return Date(timeIntervalSince1970: ((date.timeIntervalSince1970 + offset) / bucket).rounded(.down) * bucket - offset)
     }
 }
 

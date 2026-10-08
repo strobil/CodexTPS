@@ -265,7 +265,7 @@ private struct NowChart: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Spacer()
-                Segmented(options: ChartSelection.nowRanges, title: \.title, selected: range) { selection.range = $0 }
+                Segmented(options: ChartSelection.ranges, title: \.title, selected: range) { selection.range = $0 }
             }
             Chart {
                 ForEach(model.points) { p in
@@ -292,7 +292,8 @@ private struct NowChart: View {
                         .foregroundStyle(Color.secondary.opacity(0.5))
                         .lineStyle(StrokeStyle(lineWidth: 1))
                         .annotation(position: .trailing, alignment: .top, spacing: 3, overflowResolution: .init(x: .fit(to: .plot), y: .fit(to: .plot))) {
-                            Text(b.formatted(range.showsDate ? .dateTime.month(.abbreviated).day().hour().minute() : .dateTime.hour().minute()))
+                            Text(b.formatted(range.bucket >= 86400 ? .dateTime.month(.abbreviated).day()
+                                : range.showsDate ? .dateTime.month(.abbreviated).day().hour().minute() : .dateTime.hour().minute()))
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 3)
@@ -364,7 +365,7 @@ struct CompareTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Segmented(options: ChartSelection.compareRanges, title: \.title, selected: range) { selection.compareRange = $0 }
+                Segmented(options: ChartSelection.ranges, title: \.title, selected: range) { selection.compareRange = $0 }
             }
 
             if rows.isEmpty {

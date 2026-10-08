@@ -47,9 +47,9 @@ enum Snapshot {
         let dark = args.contains("dark")
         waitUntilLoaded(stats) {
             if let tab = ChartSelection.Tab.allCases.first(where: { args.contains($0.rawValue) }) { selection.tab = tab }
-            if let r = ChartRange.allCases.first(where: { args.contains($0.rawValue) }) {
-                if ChartSelection.nowRanges.contains(r) { selection.range = r }
-                if ChartSelection.compareRanges.contains(r) { selection.compareRange = r }
+            if let r = ChartSelection.ranges.first(where: { args.contains($0.rawValue) }) {
+                selection.range = r
+                selection.compareRange = r
             }
             if let b = stats.chartModel(selection.range, speed: tray.speed).points.last?.bucket, args.contains("hover") { selection.bucket = b }
             if args.contains("tray") {

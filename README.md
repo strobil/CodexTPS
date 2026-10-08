@@ -8,7 +8,7 @@ macOS menu bar app that shows how fast Codex models generate: output tokens per 
 </p>
 
 - **Menu bar**: model and speed of one series, e.g. `⚡ 6.1-sol 50 t/s`: the pinned series, or else the one generating the most tokens lately, each response counting half as much for every 5 minutes of age (the same series the Live list starts with). A pin silent for an hour gives way while another series answers. A 1-minute token-weighted average by default, or 5 minutes, or the latest response. After 2 minutes without responses the value turns grey with its age (`6.1-sol 47 t/s · 12m`); after an hour only an icon remains. During a pause it keeps the last value instead of blanking.
-- **Live**: a chart of the series over 30m / 3h / 24h / 7d (a few points far above the rest sit on the top edge as triangles, so they do not flatten the lines) and the series list: the menu bar series first, then the ones answering now, each with its 1-minute speed and TTFT. Hovering the chart switches the list to the series with a value at that moment; a click on a series pins it to the menu bar.
+- **Live**: a chart of the series over 1h / 24h / 7d / 30d (a few points far above the rest sit on the top edge as triangles, so they do not flatten the lines) and the series list: the menu bar series first, then the ones answering now, each with its 1-minute speed and TTFT. Hovering the chart switches the list to the series with a value at that moment; a click on a series pins it to the menu bar.
 - **Models**: series ranked by median per-response speed over 1h / 24h / 7d / 30d, with a p10–p90 bar and median TTFT.
 - **Settings**: E2E or decode speed, menu bar metric, split by reasoning effort, launch at login, Codex telemetry setup.
 
@@ -64,7 +64,7 @@ open build/CodexTPS.app
 
 For development:
 
-- `CodexTPS --snapshot out.png [live|models|settings] [dark] [hover] [tray] [idle=<s>] [m30|h3|h24|d7|h1|d30]` renders the popover through an offscreen AppKit window and exits; the screenshots above come from it.
+- `CodexTPS --snapshot out.png [live|models|settings] [dark] [hover] [tray] [idle=<s>] [h1|h24|d7|d30]` renders the popover through an offscreen AppKit window and exits; the screenshots above come from it.
 - `CodexTPS --bench [groups]` reports the load time and per-series totals.
 
 ## Releases

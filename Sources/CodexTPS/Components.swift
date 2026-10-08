@@ -79,8 +79,8 @@ final class ChartSelection {
         }
     }
 
-    static let nowRanges: [ChartRange] = [.m30, .h3, .h24, .d7]
-    static let compareRanges: [ChartRange] = [.h1, .h24, .d7, .d30]
+    /// Ranges offered on both Live and Models.
+    static let ranges: [ChartRange] = [.h1, .h24, .d7, .d30]
 
     /// Settings is not remembered, so the popover reopens on data.
     var tab = Tab(rawValue: UserDefaults.standard.string(forKey: "tab") ?? "").flatMap { $0 == .settings ? nil : $0 } ?? .live {
@@ -88,13 +88,13 @@ final class ChartSelection {
     }
     /// Hovered chart bucket on the Now tab.
     var bucket: Date?
-    var range: ChartRange = ChartSelection.stored("chartRange", in: nowRanges, default: .m30) {
+    var range: ChartRange = ChartSelection.stored("chartRange", in: ranges, default: .h1) {
         didSet {
             bucket = nil
             UserDefaults.standard.set(range.rawValue, forKey: "chartRange")
         }
     }
-    var compareRange: ChartRange = ChartSelection.stored("compareRange", in: compareRanges, default: .h24) {
+    var compareRange: ChartRange = ChartSelection.stored("compareRange", in: ranges, default: .h24) {
         didSet { UserDefaults.standard.set(compareRange.rawValue, forKey: "compareRange") }
     }
 
