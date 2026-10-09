@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0](https://github.com/strobil/CodexTPS/compare/CodexTPS-v0.4.0...CodexTPS-v0.5.0) (2026-10-08)
+
+
+### Features
+
+* color series by model family and give the Live chart the room ([7cfb8e8](https://github.com/strobil/CodexTPS/commit/7cfb8e82832e67d4c8e38320c0db6ab5c9b8d77f))
+* drop the overflow legend; hovering lists the series at that moment ([736f90b](https://github.com/strobil/CodexTPS/commit/736f90b295cc09608b42076df90b7b5c570738d0))
+* fit the Live y axis to the lines and mark points above it ([ca23596](https://github.com/strobil/CodexTPS/commit/ca235966d51aae5265aa4af5d80c756bc3212626))
+* offer the Models ranges (1h, 24h, 7d, 30d) on Live too ([b90c582](https://github.com/strobil/CodexTPS/commit/b90c5828f59f5219bf128235afb44ea84d32512b))
+
 ## [0.4.0](https://github.com/strobil/CodexTPS/compare/CodexTPS-v0.3.0...CodexTPS-v0.4.0) (2026-10-07)
 
 
